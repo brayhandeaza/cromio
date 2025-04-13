@@ -12,9 +12,9 @@ const client = new Client({
 
 
 // 👂 2. Nos suscribimos a un evento emitido por el servidor
-client.subscribe('greetings', (data) => {
-    console.log('🎧 Received "greetings" event from server:', data);
-});
+// client.subscribe('greetings', (data) => {
+//     console.log('🎧 Received "greetings" event from server:', data);
+// });
 
 
 const httpServer = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -35,6 +35,6 @@ const httpServer = http.createServer(async (req: IncomingMessage, res: ServerRes
     }
 });
 
-httpServer.listen(2000, () => {
-    console.log('Server started on port 2000');
+httpServer.listen(2001, () => {
+    console.log('Server started on port 2001');
 });

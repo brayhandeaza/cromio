@@ -1,14 +1,20 @@
+import EventEmitter from 'events';
 import net from 'net';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
-import { ClientFromServerType, TriggerCallback, ServerContructorType } from '../../types';
-
+import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDataType } from '../../types';
+import { ALLOW_MESSAGE } from '../../constants';
 
 export class Server {
     private port: number;
     private triggers: Map<string, TriggerCallback> = new Map();
     private clients: Map<string, ClientFromServerType> = new Map();
+    private eventEmitter: EventEmitter = new EventEmitter();
+    private subscriptions: Map<string, Map<string, net.Socket>> = new Map();
     private logs: boolean;
+    public event: {
+        emit: (event: string, data: any) => void
+    }
 
     constructor({ port = 1000, clients = [], logs = true }: ServerContructorType) {
         this.port = port;
@@ -18,6 +24,12 @@ export class Server {
         clients.forEach((client) => {
             this.clients.set(client.secretKey, client);
         });
+
+        this.event = {
+            emit: (event: string, data: any) => this.emitEvent(event, data),
+            listen: (event: string, callback: (data: any) => void) => this.listenEvent(event, callback),
+        }
+
     }
 
     public addTrigger(name: string, callback: TriggerCallback): void {
@@ -26,19 +38,14 @@ export class Server {
 
     public registerTriggerDefinition(triggerDefinition: Map<string, TriggerCallback>): void {
         this.triggers = new Map([...this.triggers, ...triggerDefinition]);
-
-        console.log({
-            clients: this.clients
-        });
-
     }
 
     public start(): void {
         const server = net.createServer(socket => {
             socket.on('data', (data) => {
                 try {
-                    const { schema, payload, credentials }: { schema: string, payload: any, credentials: ClientFromServerType } = JSON.parse(data.toString());
-                    const clientAuthorized = this.verifyClient(credentials, schema);
+                    const { trigger, payload, uuid, type, credentials }: MessageDataType = JSON.parse(data.toString());
+                    const clientAuthorized = this.verifyClient(credentials, trigger);
 
                     if (!clientAuthorized.passed) {
                         console.log(clientAuthorized.message);
@@ -51,26 +58,64 @@ export class Server {
                         return socket.write(buffer);
                     }
 
-                    const callback = this.getCallback(schema);
-                    if (!callback) {
-                        console.log(`🚫 Request failed: schema=${schema} language=${credentials.language} ip=${credentials.ip} message="Requested schema '${schema}' does not exist on the server. Ensure it has been registered correctly."`);
+                    if (type === ALLOW_MESSAGE.RPC) {
+                        const callback = this.getCallback(trigger);
+                        if (!callback) {
+                            console.log(`🚫 Request failed: schema=${trigger} language=${credentials.language} ip=${credentials.ip} message="Requested schema '${trigger}' does not exist on the server. Ensure it has been registered correctly."`);
 
-                        const buffer = Buffer.from(JSON.stringify({
-                            error: `Schema '${schema}' not found on server side. Please check the schema name.`,
-                        }));
+                            const buffer = Buffer.from(JSON.stringify({
+                                error: `Schema '${trigger}' not found on server side. Please check the schema name.`,
+                            }));
 
-                        return socket.write(buffer);
+                            return socket.write(buffer);
+                        }
+
+                        if (this.logs)
+                            this.showLogs({ trigger, credentials });
+
+
+                        const result = callback(payload);
+                        const buffer = Buffer.from(JSON.stringify(result));
+                        socket.write(buffer);
+
+                    } else if (type === ALLOW_MESSAGE.EVENT) {
+                        if (!this.subscriptions.has(trigger)) {
+                            this.subscriptions.set(trigger, new Map());
+                        }
+
+                        const subscription = this.subscriptions.get(trigger)!;
+                        subscription.set(credentials.ip, socket);
+
+                        if (this.logs) {
+                            console.log(`📡 Client subscribed to event '${trigger}' from ${credentials.ip}`);
+                        }
+
+                        socket.write(Buffer.from(JSON.stringify({ subscribed: trigger })));
+
+                    } else if (type === ALLOW_MESSAGE.SUBSCRIBE) {
+                        if (!this.subscriptions.has(trigger)) {
+                            this.subscriptions.set(trigger, new Map());
+                        }
+
+                        const subscription = this.subscriptions.get(trigger)!;
+                        subscription.set(uuid, socket);
+
+                        if (this.logs) {
+                            console.log(`🆕 Event '${trigger}' initialized for future subscriptions.`);
+                        }
+
+                        socket.write(Buffer.from(JSON.stringify({ initialized: trigger })));
                     }
 
-                    if (this.logs)
-                        this.showLogs({ schema, credentials });
-
-                    const result = callback(payload);
-                    const buffer = Buffer.from(JSON.stringify(result));
-                    socket.write(buffer);
                 } catch (err: any) {
                     socket.write(`Error: ${err.message}`);
                 }
+
+            });
+
+            socket.on('end', () => {
+                this.removeSocketFromAllEvents(socket);
+                console.log('Client disconnected');
             });
         });
 
@@ -80,15 +125,46 @@ export class Server {
         });
     }
 
-    private showLogs({ schema, credentials }: { schema: string, credentials: ClientFromServerType }): void {
-        console.log(`✅ Request received: schema=${schema} language=${credentials.language} ip=${credentials.ip}`);
+    private emitEvent(event: string, data: any): void {
+        this.eventEmitter.emit(event, data);
+
+        const subscribers = this.subscriptions.get(event);
+        if (subscribers) {
+            if (this.logs)
+                console.log(`📡 Event '${event}' emitted to clients. Data:`, data);
+
+            subscribers.forEach((socket) => {
+                socket.write(Buffer.from(JSON.stringify({
+                    type: ALLOW_MESSAGE.EVENT,
+                    event,
+                    data,
+                })));
+            });
+
+        } else
+            console.log(`⚠️ Event '${event}' not found. No clients subscribed to this event.`);
+    }
+
+    private listenEvent(event: string, callback: (data: any) => void): void {
+        this.eventEmitter.on(event, callback);
+    }
+
+
+    private removeSocketFromAllEvents(socket: net.Socket): void {
+        this.subscriptions.forEach((subscribers, event) => {
+            subscribers.delete(socket.remoteAddress!);
+        });
+    }
+
+    private showLogs({ trigger, credentials }: { trigger: string, credentials: ClientFromServerType }): void {
+        console.log(`✅ Request received: schema=${trigger} language=${credentials.language} ip=${credentials.ip}`);
     }
 
     private getCallback(name: string): TriggerCallback | undefined {
         return this.triggers.get(name);
     }
 
-    private verifyClient(credentials: ClientFromServerType, schema: string): { passed: boolean, message: string }{
+    private verifyClient(credentials: ClientFromServerType, schema: string): { passed: boolean, message: string } {
         if (!credentials.secretKey)
             return {
                 passed: false,

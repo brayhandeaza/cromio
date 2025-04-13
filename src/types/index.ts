@@ -29,11 +29,19 @@ export type ClientFromServerType = {
     secretKey: string;
     language: 'nodejs' | 'python';
     roles?: string[];
-    ip?: string;
+    ip: string;
 }
 
 export type ServerContructorType = {
-    port: number;
+    port?: number;
     logs?: boolean;
     clients?: ClientFromServerType[];
+}
+
+export type MessageDataType = {
+    trigger: string,
+    uuid: string,
+    type: string,
+    payload: any,
+    credentials: ClientFromServerType
 }

@@ -1,7 +1,8 @@
 import net from 'net';
 import { ip } from 'address';
 import { ClientContructorType, CredentialsType, EncodingType } from '../../types';
-import { Encoding } from '../../constants';
+import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM } from '../../constants';
+import shortUUID, { uuid } from 'short-uuid';
 
 
 export class Client {
@@ -9,20 +10,29 @@ export class Client {
     private port: number;
     private decoder: EncodingType;
     private credentials: CredentialsType | undefined;
+    private eventSockets: Map<string, net.Socket> = new Map();
 
-    constructor({ host, port, decoder = Encoding.BUFFER, credentials }: ClientContructorType) {
+
+    constructor({ host, port, decoder = DECODER.BUFFER, credentials }: ClientContructorType) {
         this.host = host;
         this.port = port;
         this.decoder = decoder;
-        this.credentials = credentials ? { ...credentials, language: 'nodejs', ip: ip() || "127.0.0.1" } : undefined;
+        this.credentials = credentials ? { ...credentials, language: PLATFORM, ip: ip() || LOCALHOST } : undefined;
     }
 
-    public call(schema: string, payload: any): Promise<any> {
+    public call(trigger: string, payload: any): Promise<any> {
         return new Promise((resolve, reject) => {
             const client = new net.Socket();
 
             client.connect(this.port, this.host, () => {
-                const message = JSON.stringify({ schema, payload, credentials: this.credentials });
+                const message = JSON.stringify({
+                    uuid: shortUUID.generate(),
+                    trigger,
+                    type: ALLOW_MESSAGE.RPC,
+                    payload,
+                    credentials: this.credentials
+                });
+
                 client.write(message);
             });
 
@@ -53,10 +63,56 @@ export class Client {
                 }
             });
 
-            client.on('error', (err) => {
-                reject(err);
-            });
+            client.on('error', (err) => reject(err));
         });
+    }
+
+    public subscribe(event: string, callback: (data: any) => void): void {
+        if (this.eventSockets.has(event)) {
+            console.log(`⚠️ Already subscribed to event: '${event}'`);
+            return;
+        }
+
+        const socket = new net.Socket();
+
+        socket.connect(this.port, this.host, () => {
+            const message = JSON.stringify({
+                uuid: shortUUID.generate(),
+                type: ALLOW_MESSAGE.SUBSCRIBE,
+                trigger: event,
+                credentials: this.credentials,
+            });
+
+            socket.write(message);
+        });
+
+        socket.on('data', (data) => {
+            try {
+                const parsed = JSON.parse(data.toString());
+                if (parsed.type === ALLOW_MESSAGE.EVENT && parsed.event === event) {
+                    callback(parsed.data);
+                }
+            } catch (err) {
+                console.error(`❌ Failed to parse event '${event}' data:`, err);
+            }
+        });
+
+        socket.on('error', (err) => {
+            console.error(`❌ Error in subscription to '${event}':`, err);
+        });
+
+        socket.on('end', () => {
+            console.log(`🛑 Event subscription '${event}' ended`);
+        });
+    }
+
+    public unsubscribe(event: string) {
+        const socket = this.eventSockets.get(event);
+        if (socket) {
+            socket.end();
+            this.eventSockets.delete(event);
+            console.log(`🔕 Unsubscribed from event '${event}'`);
+        }
     }
 }
 

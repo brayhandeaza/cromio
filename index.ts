@@ -2,7 +2,6 @@ import { Server, triggerDefinition } from "./src";
 
 
 const tcpServer: Server = new Server({
-    port: 1000,
     clients: [
         {
             secretKey: '5d8c957c754136994cf790daa351f5df28c7fac6d89f4f59f46c259177e1c6be',
@@ -32,6 +31,14 @@ const userTriggers = triggerDefinition([
 
 
 tcpServer.registerTriggerDefinition(userTriggers);
+
+// Emitimos un evento cada 5 segundos como ejemplo
+setInterval(() => {
+    const payload = { message: '🛰️ Hello from the server!', timestamp: Date.now() };
+
+    // console.log('📢 Emitting event "greetings"', payload);
+    tcpServer.emitEvent('greetings', payload);
+}, 5000);
 
 tcpServer.start();
 
