@@ -3,14 +3,22 @@ import { ip } from 'address';
 import { ClientContructorType, CredentialsType, EncodingType } from '../../types';
 import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM } from '../../constants';
 import shortUUID, { uuid } from 'short-uuid';
+import EventEmitter from 'events';
 
 
 export class Client {
     private host: string;
     private port: number;
+    private clientId: string = shortUUID.generate();
     private decoder: EncodingType;
     private credentials: CredentialsType | undefined;
     private eventSockets: Map<string, net.Socket> = new Map();
+    private eventEmitterSocket: net.Socket = new net.Socket();
+    public event: {
+        emit: (event: string, data: any) => void,
+        subscribe: (event: string, callback: (data: any) => void) => void,
+    }
+
 
 
     constructor({ host, port, decoder = DECODER.BUFFER, credentials }: ClientContructorType) {
@@ -18,6 +26,16 @@ export class Client {
         this.port = port;
         this.decoder = decoder;
         this.credentials = credentials ? { ...credentials, language: PLATFORM, ip: ip() || LOCALHOST } : undefined;
+
+        this.eventEmitterSocket = new net.Socket();
+        this.eventEmitterSocket.connect(this.port, this.host, () => {            
+            console.log(`🔌 Event emitter socket connected to ${this.host}:${this.port}`);
+        });
+
+        this.event = {
+            emit: (event: string, data: any) => this.emit(event, data),
+            subscribe: (event: string, callback: (data: any) => void) => this.subscribe(event, callback),
+        }
     }
 
     public call(trigger: string, payload: any): Promise<any> {
@@ -105,6 +123,37 @@ export class Client {
             console.log(`🛑 Event subscription '${event}' ended`);
         });
     }
+
+    public emit(event: string, data: any): void {
+        if (!this.eventEmitterSocket) {
+            this.eventEmitterSocket = new net.Socket();
+
+            this.eventEmitterSocket.connect(this.port, this.host, () => {
+                console.log(`🔌 Event emitter socket connected to ${this.host}:${this.port}`);
+            });
+
+            this.eventEmitterSocket.on('error', (err) => {
+                console.error(`❌ Error in event emitter socket:`, err);
+                this.eventEmitterSocket?.destroy();
+            });
+
+            this.eventEmitterSocket.on('end', () => {
+                console.log(`🛑 Event emitter socket ended`);
+            });
+        }
+
+        const message = JSON.stringify({
+            uuid: this.clientId,
+            type: ALLOW_MESSAGE.EVENT,
+            trigger: event,
+            payload: data,
+            credentials: this.credentials,
+        });
+
+        this.eventEmitterSocket.write(message);
+    }
+
+
 
     public unsubscribe(event: string) {
         const socket = this.eventSockets.get(event);

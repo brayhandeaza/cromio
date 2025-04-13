@@ -8,12 +8,14 @@ import { ALLOW_MESSAGE } from '../../constants';
 export class Server {
     private port: number;
     private triggers: Map<string, TriggerCallback> = new Map();
+    private events: Map<string, TriggerCallback> = new Map();
     private clients: Map<string, ClientFromServerType> = new Map();
     private eventEmitter: EventEmitter = new EventEmitter();
     private subscriptions: Map<string, Map<string, net.Socket>> = new Map();
     private logs: boolean;
     public event: {
-        emit: (event: string, data: any) => void
+        emit: (event: string, data: any) => void,
+        subscribe: (event: string, callback: (data: any) => void) => void,
     }
 
     constructor({ port = 1000, clients = [], logs = true }: ServerContructorType) {
@@ -27,10 +29,18 @@ export class Server {
 
         this.event = {
             emit: (event: string, data: any) => this.emitEvent(event, data),
-            listen: (event: string, callback: (data: any) => void) => this.listenEvent(event, callback),
+            subscribe: (event: string, callback: (data: any) => void) => this.onEvent(event, callback),
         }
 
     }
+
+    public onEvent(event: string, callback: TriggerCallback): void {
+        this.events.set(event, callback);
+
+        if (this.logs)
+            console.log(`📥 Registered server-side event handler for '${event}'`);
+    }
+
 
     public addTrigger(name: string, callback: TriggerCallback): void {
         this.triggers.set(name, callback);
@@ -86,11 +96,17 @@ export class Server {
                         const subscription = this.subscriptions.get(trigger)!;
                         subscription.set(credentials.ip, socket);
 
-                        if (this.logs) {
-                            console.log(`📡 Client subscribed to event '${trigger}' from ${credentials.ip}`);
-                        }
+                        const callback = this.events.get(trigger)!;
+                        const { passed, message } = this.verifyEvent(!!callback, credentials, trigger, uuid);
 
-                        socket.write(Buffer.from(JSON.stringify({ subscribed: trigger })));
+                        if (passed) {
+                            callback(payload);
+                            socket.write(Buffer.from(JSON.stringify({ subscribed: trigger })));
+
+                        } else {
+                            const buffer = Buffer.from(JSON.stringify({ error: message }));
+                            socket.write(buffer);
+                        }                        
 
                     } else if (type === ALLOW_MESSAGE.SUBSCRIBE) {
                         if (!this.subscriptions.has(trigger)) {
@@ -195,6 +211,25 @@ export class Server {
         return {
             passed: true,
             message: ""
+        };
+    }
+    private verifyEvent(isSubbscribed: boolean, credentials: ClientFromServerType, event: string, clientId: string): { passed: boolean, message: string } {
+        if (!isSubbscribed) {
+            const message = `🚫 Unsubscribe Event: event='${event}' ip=${credentials.ip} client=${clientId} message="No event named '${event}' is registered on the server."`
+
+            if (this.logs)
+                console.log(message);
+
+            return {
+                passed: false,
+                message
+            };
+        }
+
+        const message = `📡 Incoming Event: event='${event}' ip=${credentials.ip} client=${clientId} client=${clientId}`
+        return {
+            passed: true,
+            message
         };
     }
 }

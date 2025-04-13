@@ -30,15 +30,22 @@ const userTriggers = triggerDefinition([
 ])
 
 
+tcpServer.event.subscribe('greetings', (data: any) => {
+    console.log({ data });
+
+    tcpServer.event.emit('greetings', data);
+})
+
+
 tcpServer.registerTriggerDefinition(userTriggers);
 
-// Emitimos un evento cada 5 segundos como ejemplo
-setInterval(() => {
-    const payload = { message: '🛰️ Hello from the server!', timestamp: Date.now() };
+// // Emitimos un evento cada 5 segundos como ejemplo
+// setInterval(() => {
+//     const payload = { message: '🛰️ Hello from the server!', timestamp: Date.now() };
 
-    // console.log('📢 Emitting event "greetings"', payload);
-    tcpServer.emitEvent('greetings', payload);
-}, 5000);
+//     // console.log('📢 Emitting event "greetings"', payload);
+//     tcpServer.event.emit('greetings', payload);
+// }, 5000);
 
 tcpServer.start();
 

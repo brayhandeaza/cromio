@@ -20,14 +20,16 @@ client.subscribe('greetings', (data) => {
 const httpServer = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
     try {
         if (req.method === 'POST') {
-            const user = await client.call('ping', { name: 'John Doe' });
+            // const user = await client.call('ping', { name: 'John Doe' });
 
-            console.log(user);
+            // console.log(user);
+
+            client.event.emit('greetings', { name: 'John Doe' });
 
 
             res.setHeader('Content-Type', 'application/json');
             res.writeHead(200);
-            res.end(JSON.stringify(user));
+            res.end(JSON.stringify("user"));
         }
 
     } catch (error) {
