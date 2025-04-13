@@ -26,6 +26,11 @@ export class Server {
 
     public registerTriggerDefinition(triggerDefinition: Map<string, TriggerCallback>): void {
         this.triggers = new Map([...this.triggers, ...triggerDefinition]);
+
+        console.log({
+            clients: this.clients
+        });
+
     }
 
     public start(): void {
@@ -33,10 +38,10 @@ export class Server {
             socket.on('data', (data) => {
                 try {
                     const { schema, payload, credentials }: { schema: string, payload: any, credentials: ClientFromServerType } = JSON.parse(data.toString());
-                    const clientAuthorized = this.verifyClient(credentials);
+                    const clientAuthorized = this.verifyClient(credentials, schema);
 
-                    if (!clientAuthorized) {
-                        console.log(`🚫 Request faild: schema=${schema} language=${credentials.language} ip=${credentials.ip} message=Client not authorized`);
+                    if (!clientAuthorized.passed) {
+                        console.log(clientAuthorized.message);
 
                         const buffer = Buffer.from(JSON.stringify({
                             error: "Client not authorized to access this server",
@@ -48,10 +53,10 @@ export class Server {
 
                     const callback = this.getCallback(schema);
                     if (!callback) {
-                        console.log(`🚫 Request faild: schema=${schema} language=${credentials.language} ip=${credentials.ip} message="Schema '${schema}' not found on server side. Please check the schema name."`);
-                        
+                        console.log(`🚫 Request failed: schema=${schema} language=${credentials.language} ip=${credentials.ip} message="Requested schema '${schema}' does not exist on the server. Ensure it has been registered correctly."`);
+
                         const buffer = Buffer.from(JSON.stringify({
-                            error: `Schema '${schema}' not found on server side. Please check the schema name.`,                           
+                            error: `Schema '${schema}' not found on server side. Please check the schema name.`,
                         }));
 
                         return socket.write(buffer);
@@ -83,23 +88,37 @@ export class Server {
         return this.triggers.get(name);
     }
 
-    private verifyClient(credentials: ClientFromServerType): boolean {
+    private verifyClient(credentials: ClientFromServerType, schema: string): { passed: boolean, message: string }{
         if (!credentials.secretKey)
-            return false;
+            return {
+                passed: false,
+                message: `🚫 Authentication failed: schema=${schema} language=${credentials.language} ip=${credentials.ip} message=""The 'secretKey' you provided is incorrect or missing."`
+            };
 
         const client = this.clients.get(credentials.secretKey);
         if (!client && this.clients.size! > 0)
-            return false;
+            return {
+                passed: false,
+                message: `🚫 Authentication failed: schema=${schema} language=${credentials.language} ip=${credentials.ip} message="Client did not provide valid credentials or failed authentication checks."`
+            };
 
         if (client) {
             if (client.language !== credentials.language)
-                return false;
+                return {
+                    passed: false,
+                    message: `🚫 Authentication failed: schema=${schema} language=${credentials.language} ip=${credentials.ip} message="Client is only allowed access from '${client.language}', but the request was made using '${credentials.language}'"`
+                };
 
             if (client.ip !== credentials.ip && client.ip !== undefined)
-                return false;
+                return {
+                    passed: false,
+                    message: `🚫 Authentication failed: schema=${schema} language=${credentials.language} ip=${credentials.ip} message="Client is only allowed access from '${client.ip}', but the request was made from '${credentials.ip}'"`
+                }
         }
 
-
-        return true;
+        return {
+            passed: true,
+            message: ""
+        };
     }
 }
