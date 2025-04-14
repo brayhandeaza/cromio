@@ -2,13 +2,14 @@ import EventEmitter from 'events';
 import net from 'net';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
-import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDataType } from '../../types';
+import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDataType, SubscriptionCallback, SubscriptionDefinitionType } from '../../types';
 import { ALLOW_MESSAGE } from '../../constants';
+import PQueue from 'p-queue';
 
 export class Server {
     private port: number;
     private triggers: Map<string, TriggerCallback> = new Map();
-    private events: Map<string, TriggerCallback> = new Map();
+    private events: SubscriptionDefinitionType = new Map();
     private clients: Map<string, ClientFromServerType> = new Map();
     private eventEmitter: EventEmitter = new EventEmitter();
     private subscriptions: Map<string, Map<string, net.Socket>> = new Map();
@@ -34,7 +35,7 @@ export class Server {
 
     }
 
-    public onEvent(event: string, callback: TriggerCallback): void {
+    public onEvent(event: string, callback: SubscriptionCallback): void {
         this.events.set(event, callback);
 
         if (this.logs)
@@ -50,6 +51,9 @@ export class Server {
         this.triggers = new Map([...this.triggers, ...triggerDefinition]);
     }
 
+    public registerSubscriptionDefinition(subscriptionDefinition: SubscriptionDefinitionType): void {        
+        this.events = new Map([...this.events, ...subscriptionDefinition]);
+    }
     public start(): void {
         const server = net.createServer(socket => {
             socket.on('data', (data) => {
@@ -58,8 +62,6 @@ export class Server {
                     const clientAuthorized = this.verifyClient(credentials, trigger);
 
                     if (!clientAuthorized.passed) {
-                        console.log(clientAuthorized.message);
-
                         const buffer = Buffer.from(JSON.stringify({
                             error: "Client not authorized to access this server",
                             client: credentials,
@@ -106,7 +108,7 @@ export class Server {
                         } else {
                             const buffer = Buffer.from(JSON.stringify({ error: message }));
                             socket.write(buffer);
-                        }                        
+                        }
 
                     } else if (type === ALLOW_MESSAGE.SUBSCRIBE) {
                         if (!this.subscriptions.has(trigger)) {
@@ -129,7 +131,7 @@ export class Server {
 
             });
 
-            socket.on('end', () => {
+            socket.on("end", (data: any) => {
                 this.removeSocketFromAllEvents(socket);
                 console.log('Client disconnected');
             });
@@ -145,30 +147,56 @@ export class Server {
         this.eventEmitter.emit(event, data);
 
         const subscribers = this.subscriptions.get(event);
-        if (subscribers) {
+        if (subscribers && subscribers.size > 0) {
+            const concurrency = Math.min(10, subscribers.size); // Limit to max 10 concurrent writes
+            const dynamicQueue = new PQueue({ concurrency });
+
             if (this.logs)
-                console.log(`📡 Event '${event}' emitted to clients. Data:`, data);
+                console.log(`📡 Event '${event}' emitted to ${subscribers.size} clients (concurrency: ${concurrency}). Data:`, data);
 
             subscribers.forEach((socket) => {
-                socket.write(Buffer.from(JSON.stringify({
-                    type: ALLOW_MESSAGE.EVENT,
-                    event,
-                    data,
-                })));
+                dynamicQueue.add(() => {
+                    return new Promise<void>((resolve, reject) => {
+                        try {
+                            const message = JSON.stringify({
+                                type: ALLOW_MESSAGE.EVENT,
+                                event,
+                                data,
+                            });
+
+                            socket.write(Buffer.from(message), (err) => {
+                                if (err) {
+                                    console.warn(`❌ Failed to send event '${event}' to client.`);
+                                    return reject(err);
+                                }
+                                resolve();
+                            });
+                        } catch (error) {
+                            console.error(`❌ Error sending event to client:`, error);
+                            reject(error);
+                        }
+                    });
+                });
             });
 
-        } else
+        } else {
             console.log(`⚠️ Event '${event}' not found. No clients subscribed to this event.`);
+        }
     }
-
-    private listenEvent(event: string, callback: (data: any) => void): void {
-        this.eventEmitter.on(event, callback);
-    }
-
 
     private removeSocketFromAllEvents(socket: net.Socket): void {
         this.subscriptions.forEach((subscribers, event) => {
-            subscribers.delete(socket.remoteAddress!);
+            for (const [clientId, clientSocket] of subscribers.entries()) {
+                if (clientSocket === socket) {
+                    subscribers.delete(clientId);
+                    break;
+                }
+            }
+
+            // Clean up if no more subscribers for this event
+            if (subscribers.size === 0) {
+                this.subscriptions.delete(event);
+            }
         });
     }
 

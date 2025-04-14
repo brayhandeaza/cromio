@@ -1,5 +1,6 @@
-import { Client, ENCODER } from "./src"
+import { Client, ENCODER, subscriptionDefinition } from "./src"
 import http, { IncomingMessage, ServerResponse } from "http"
+import { SubscriptionDefinitionType } from "./src/types";
 
 const client = new Client({
     host: 'localhost',
@@ -11,11 +12,24 @@ const client = new Client({
 })
 
 
-// 👂 2. Nos suscribimos a un evento emitido por el servidor
-client.subscribe('greetings', (data) => {
-    console.log('🎧 Received "greetings" event from server:', data);
-});
+const userSubscriptions: SubscriptionDefinitionType = subscriptionDefinition([
+    {
+        name: 'greetings',
+        callback: (payload: any) => {
+            console.log({ payload });
+            return payload;
+        }
+    },
+    {
+        name: 'getUser',
+        callback: (payload: any) => {
+            console.log({ payload });
+            return payload;
+        }
+    },
+])
 
+client.event.registerSubscriptionDefinition(userSubscriptions);
 
 const httpServer = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
     try {

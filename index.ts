@@ -1,4 +1,5 @@
-import { Server, triggerDefinition } from "./src";
+import { Server, subscriptionDefinition, triggerDefinition } from "./src";
+import { SubscriptionDefinitionType } from "./src/types";
 
 
 const tcpServer: Server = new Server({
@@ -29,23 +30,25 @@ const userTriggers = triggerDefinition([
     }
 ])
 
+const userSubscriptions: SubscriptionDefinitionType = subscriptionDefinition([
+    {
+        name: 'greetings',
+        callback: (payload: any) => {
+            console.log({ payload });
+            return payload;
+        }
+    }
+])
 
-tcpServer.event.subscribe('greetings', (data: any) => {
-    console.log({ data });
 
-    tcpServer.event.emit('greetings', data);
-})
-
-
+// tcpServer.registerSubscriptionDefinition(userSubscriptions);
 tcpServer.registerTriggerDefinition(userTriggers);
 
 // // Emitimos un evento cada 5 segundos como ejemplo
-// setInterval(() => {
-//     const payload = { message: '🛰️ Hello from the server!', timestamp: Date.now() };
-
-//     // console.log('📢 Emitting event "greetings"', payload);
-//     tcpServer.event.emit('greetings', payload);
-// }, 5000);
+setInterval(() => {
+    tcpServer.event.emit('greetings', { message: '🛰️ Hello from greetings'});
+    tcpServer.event.emit('getUser', { message: '🛰️ Hello from getUser'});
+}, 5000);
 
 tcpServer.start();
 

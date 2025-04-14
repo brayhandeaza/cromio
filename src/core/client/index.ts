@@ -1,9 +1,8 @@
 import net from 'net';
 import { ip } from 'address';
-import { ClientContructorType, CredentialsType, EncodingType } from '../../types';
+import { ClientContructorType, CredentialsType, EncodingType, SubscriptionDefinitionType } from '../../types';
 import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM } from '../../constants';
-import shortUUID, { uuid } from 'short-uuid';
-import EventEmitter from 'events';
+import shortUUID from 'short-uuid';
 
 
 export class Client {
@@ -17,8 +16,9 @@ export class Client {
     public event: {
         emit: (event: string, data: any) => void,
         subscribe: (event: string, callback: (data: any) => void) => void,
+        unsubscribe: (event: string) => void,
+        registerSubscriptionDefinition: (subscriptionDefinition: SubscriptionDefinitionType) => void
     }
-
 
 
     constructor({ host, port, decoder = DECODER.BUFFER, credentials }: ClientContructorType) {
@@ -28,13 +28,20 @@ export class Client {
         this.credentials = credentials ? { ...credentials, language: PLATFORM, ip: ip() || LOCALHOST } : undefined;
 
         this.eventEmitterSocket = new net.Socket();
-        this.eventEmitterSocket.connect(this.port, this.host, () => {            
+        this.eventEmitterSocket.connect(this.port, this.host, () => {
             console.log(`🔌 Event emitter socket connected to ${this.host}:${this.port}`);
+        });
+
+        this.eventEmitterSocket.on("close", (data) => {
+            const { event, data: eventData } = JSON.parse(data.toString());
+            this.emit(event, eventData);
         });
 
         this.event = {
             emit: (event: string, data: any) => this.emit(event, data),
             subscribe: (event: string, callback: (data: any) => void) => this.subscribe(event, callback),
+            unsubscribe: (event: string) => this.unsubscribe(event),
+            registerSubscriptionDefinition: (subscriptionDefinition: SubscriptionDefinitionType) => this.registerSubscriptionDefinition(subscriptionDefinition)
         }
     }
 
@@ -85,7 +92,7 @@ export class Client {
         });
     }
 
-    public subscribe(event: string, callback: (data: any) => void): void {
+    private subscribe(event: string, callback: (data: any) => void): void {
         if (this.eventSockets.has(event)) {
             console.log(`⚠️ Already subscribed to event: '${event}'`);
             return;
@@ -124,7 +131,11 @@ export class Client {
         });
     }
 
-    public emit(event: string, data: any): void {
+    private registerSubscriptionDefinition(subscriptionDefinition: SubscriptionDefinitionType): void {
+        subscriptionDefinition.forEach((callback, event) => this.subscribe(event, callback));
+    }
+
+    private emit(event: string, data: any): void {
         if (!this.eventEmitterSocket) {
             this.eventEmitterSocket = new net.Socket();
 
@@ -153,9 +164,7 @@ export class Client {
         this.eventEmitterSocket.write(message);
     }
 
-
-
-    public unsubscribe(event: string) {
+    private unsubscribe(event: string) {
         const socket = this.eventSockets.get(event);
         if (socket) {
             socket.end();

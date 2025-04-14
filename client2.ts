@@ -12,9 +12,9 @@ const client = new Client({
 
 
 // 👂 2. Nos suscribimos a un evento emitido por el servidor
-// client.subscribe('greetings', (data) => {
-//     console.log('🎧 Received "greetings" event from server:', data);
-// });
+client.event.subscribe('greetings', (data) => {
+    console.log('🎧 Received "greetings" event from server:', data);
+});
 
 
 const httpServer = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {

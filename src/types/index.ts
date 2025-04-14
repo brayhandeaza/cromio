@@ -18,8 +18,16 @@ export type ClientContructorType = {
 
 
 export type TriggerCallback = (payload: any) => any;
+export type SubscriptionCallback = (payload: any) => any;
+
+export type SubscriptionDefinitionType = Map<string, SubscriptionCallback> 
 
 export type TriggerType = {
+    name: string;
+    roles?: string[];
+    callback: TriggerCallback;
+}
+export type SubscriptionType = {
     name: string;
     roles?: string[];
     callback: TriggerCallback;
