@@ -1,24 +1,20 @@
-import { SubscriptionCallback, SubscriptionDefinitionType, SubscriptionType, TriggerCallback, TriggerType } from "../types";
+import { SubscriptionType, TriggerCallback, TriggerType } from "../types";
+import { SubscriptionDefinition } from "./SubscriptionDefinition";
+import { TriggerDefinition } from "./TriggerDefinition";
 
 
 
-export const triggerDefinition = (triggers: TriggerType[]): Map<string, TriggerCallback> => {
-    const triggerMap = new Map<string, TriggerCallback>();
 
-    for (const trigger of triggers) {
-        triggerMap.set(trigger.name, trigger.callback);
-    }
+export const triggerDefinition = (triggers?: TriggerType[]): TriggerDefinition => {
+    const trigger = new TriggerDefinition(triggers)
 
-    return triggerMap;
+    return trigger;
 }
 
 
-export const subscriptionDefinition = (subscriptions: SubscriptionType[]): SubscriptionDefinitionType => {
-    const subscriptionMap = new Map<string, SubscriptionCallback>();
 
-    for (const { name, callback } of subscriptions) {
-        subscriptionMap.set(name, callback);
-    }
+export const subscriptionDefinition = (subscriptions?: SubscriptionType[]): SubscriptionDefinition => {
+    const definition = new SubscriptionDefinition(subscriptions)
 
-    return subscriptionMap;
-};
+    return definition
+}

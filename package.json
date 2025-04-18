@@ -13,10 +13,12 @@
   },
   "dependencies": {
     "@types/express": "^5.0.1",
+    "@types/stack-trace": "^0.0.33",
     "address": "^2.0.3",
     "buffer": "^6.0.3",
     "p-queue": "^8.1.0",
     "short-uuid": "^5.2.0",
+    "stack-trace": "^1.0.0-pre2",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
   },

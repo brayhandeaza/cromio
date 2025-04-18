@@ -1,9 +1,8 @@
 import net from 'net';
 import { ip } from 'address';
-import { ClientContructorType, CredentialsType, EncodingType, SubscriptionDefinitionType } from '../../types';
+import { ClientContructorType, CredentialsType, EncodingType, MessageDataType, ClientPluginsType, SubscriptionDefinitionType } from '../../types';
 import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM } from '../../constants';
-import shortUUID from 'short-uuid';
-
+import shortUUID, { uuid } from 'short-uuid';
 
 export class Client {
     private host: string;
@@ -13,11 +12,13 @@ export class Client {
     private credentials: CredentialsType | undefined;
     private eventSockets: Map<string, net.Socket> = new Map();
     private eventEmitterSocket: net.Socket = new net.Socket();
+    private plugins: Map<string, ClientPluginsType> = new Map();
+
     public event: {
         emit: (event: string, data: any) => void,
         subscribe: (event: string, callback: (data: any) => void) => void,
         unsubscribe: (event: string) => void,
-        registerSubscriptionDefinition: (subscriptionDefinition: SubscriptionDefinitionType) => void
+        registerSubscriptionDefinition: ({ subscriptions, subscribe }: { subscriptions: SubscriptionDefinitionType, subscribe?: Function }) => void
     }
 
 
@@ -41,8 +42,14 @@ export class Client {
             emit: (event: string, data: any) => this.emit(event, data),
             subscribe: (event: string, callback: (data: any) => void) => this.subscribe(event, callback),
             unsubscribe: (event: string) => this.unsubscribe(event),
-            registerSubscriptionDefinition: (subscriptionDefinition: SubscriptionDefinitionType) => this.registerSubscriptionDefinition(subscriptionDefinition)
+            registerSubscriptionDefinition: ({ subscriptions: subscriptionDefinition, subscribe }: { subscriptions: SubscriptionDefinitionType, subscribe?: Function }) => this.registerSubscriptionDefinition(subscriptionDefinition)
         }
+    }
+
+    public addPlugin(callback: ClientPluginsType[]): void {
+        callback.forEach((plugin) => {
+            this.plugins.set(shortUUID.generate(), plugin);
+        });
     }
 
     public call(trigger: string, payload: any): Promise<any> {
@@ -61,8 +68,8 @@ export class Client {
                 client.write(message);
             });
 
-            client.on('data', (data) => {
-                try {
+            client.on('data', (data) => {                
+                try {                 
                     switch (this.decoder) {
                         case "json":
                             resolve(JSON.parse(data.toString()));
@@ -81,8 +88,8 @@ export class Client {
                             break;
                     }
 
-                } catch (err) {
-                    reject(new Error('Failed to parse server response'));
+                } catch (err: any) {
+                    reject(err);
                 } finally {
                     client.end();
                 }
@@ -112,12 +119,23 @@ export class Client {
         });
 
         socket.on('data', (data) => {
+            const parsed: MessageDataType = JSON.parse(data.toString());
             try {
-                const parsed = JSON.parse(data.toString());
-                if (parsed.type === ALLOW_MESSAGE.EVENT && parsed.event === event) {
-                    callback(parsed.data);
-                }
+                this.plugins.forEach((plugin) => {
+                    if (plugin.requestReceived)
+                        plugin.requestReceived(parsed, this)
+                });
+
+                if (parsed.type === ALLOW_MESSAGE.EVENT && parsed.trigger === event)
+                    callback(parsed.payload);
+
             } catch (err) {
+                this.plugins.forEach((plugin) => {
+                    if (plugin.requestFailed) {
+                        plugin.requestFailed({ error: { message: `❌ Failed to parse event '${event}' data:` } }, parsed)
+                    }
+                });
+
                 console.error(`❌ Failed to parse event '${event}' data:`, err);
             }
         });
@@ -127,7 +145,7 @@ export class Client {
         });
 
         socket.on('end', () => {
-            console.log(`🛑 Event subscription '${event}' ended`);
+            // process.kill(0)           
         });
     }
 

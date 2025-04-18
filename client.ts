@@ -11,40 +11,24 @@ const client = new Client({
     }
 })
 
-
-const userSubscriptions: SubscriptionDefinitionType = subscriptionDefinition([
-    {
-        name: 'greetings',
-        callback: (payload: any) => {
-            console.log({ payload });
-            return payload;
-        }
-    },
-    {
-        name: 'getUser',
-        callback: (payload: any) => {
-            console.log({ payload });
-            return payload;
-        }
-    },
-])
-
-client.event.registerSubscriptionDefinition(userSubscriptions);
-
 const httpServer = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
     try {
-        if (req.method === 'POST') {
-            // const user = await client.call('ping', { name: 'John Doe' });
+        // if (req.method === 'POST') {
+            const user = client.call('doSomething', { name: 'John Does', token: req.method === 'POST' });
 
-            // console.log(user);
+            user.then((data) => {
+                console.log(data);
+            }).catch((error) => {
+                console.error(error);
+            })
 
-            client.event.emit('greetings', { name: 'John Doe' });
+            // client.call('doSomething', { name: 'John Doe', token: req.method === 'POST' });
 
 
             res.setHeader('Content-Type', 'application/json');
             res.writeHead(200);
             res.end(JSON.stringify("user"));
-        }
+        // }
 
     } catch (error) {
         console.error(error);
