@@ -1,5 +1,6 @@
 import { Server, subscriptionDefinition } from "./src";
-import { ClientFromServerType,  MiddlewareContextType, TriggerCallback } from "./src/types";
+import { ServerExtension } from "./src/core/server/Extensions";
+import { ClientFromServerType, MiddlewareContextType, TriggerCallback } from "./src/types";
 
 const clients: ClientFromServerType[] = [
     {
@@ -16,40 +17,94 @@ const clients: ClientFromServerType[] = [
     }
 ]
 
+
 const server: Server = new Server({
-    clients
+    clients,
+    logs: false
 });
 
 
-// Per-trigger auth middleware
-const authMiddleware: TriggerCallback = (context: MiddlewareContextType) => {    
-    if (!context.body.token) {
-        throw 'Missing token';
-    }
-};
-const authMiddleware2: TriggerCallback = (context: MiddlewareContextType) => {    
-    if (context.body.name !== 'John Doe') {
-        throw 'Invalid name';
-    }
 
-    context.response("Hello world!! 2");
-};
-
-server.addTrigger('doSomething', authMiddleware, authMiddleware2, async (context: MiddlewareContextType) => {
-    console.log(context.credentials);
+server.addTrigger('doSomething', async (context: MiddlewareContextType) => {
+    context
     context.response({ name: 'fianl middleware' });
 });
 
 
+const timestampExt: ServerExtension<{ getTime: () => string, age: number }> = {
+    injectProperties: (server) => ({
+        age: 30,
+        getTime() {
+            return new Date().toISOString();
+        }
+    }),
+    onStart: ({ server }) => {
+        console.log('Start Time:', server.getTime());
+    },
+    onStop: ({ server }) => {
+        console.log('Stop Time:', server.getTime());
+    },
+    onRequest: (ctx) => {
+        console.log('Request Time:', ctx.server);
+    }
+};
 
-// Emitimos un evento cada 5 segundos como ejemplo
-const userSubscriptions = subscriptionDefinition()
-userSubscriptions.subscribe('greetings', (payload: any) => {
-    console.log({ payload });
-    return payload;
-})
+const loggingExt: ServerExtension<{
+    log: (message: string, level: 'info' | 'warn' | 'error' | 'debug') => void;
+    uptime: () => string;
+    requestCount: number;
+    lastRequestTime: Date | null;
+    logStats: () => void;
+}> = {
+    injectProperties: (server) => ({
+        // Basic logging method to output messages with different log levels
+        log(message, level) {
+            const timestamp = new Date().toISOString();
+            console.log(`[${timestamp}] [${level.toUpperCase()}] - ${message}`);
+        },
+
+        // Method to track and return server uptime
+        uptime() {
+            const uptimeMs = process.uptime() * 1000; // Get uptime in milliseconds
+            const hours = Math.floor(uptimeMs / (1000 * 60 * 60));
+            const minutes = Math.floor((uptimeMs % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((uptimeMs % (1000 * 60)) / 1000);
+            return `${hours}h ${minutes}m ${seconds}s`;
+        },
+
+        // Count of incoming requests handled by the server
+        requestCount: 0,
+
+        // Track the time of the last incoming request
+        lastRequestTime: null,
+
+        // Log server statistics (requests handled, uptime, etc.)
+        logStats() {
+            const uptimeStr = server.uptime();
+            console.log(`Server Uptime: ${uptimeStr}`);
+            console.log(`Total Requests Handled: ${server.requestCount}`);
+            console.log(`Last Request Time: ${server.lastRequestTime ? server.lastRequestTime.toISOString() : 'N/A'}`);
+        },
+    }),
+
+    onStart: ({ server }) => {
+        server.log('Logging Extension Started', 'info');
+    },
+
+    onStop: ({ server }) => {
+        server.log('Logging Extension Stopped', 'info');
+        server.logStats();
+    },
+
+    onRequest: ({ server, request }) => {
+        server.requestCount++;
+        server.lastRequestTime = new Date();
+        server.log(`Received a request at ${server.lastRequestTime.toISOString()}`, 'debug');
+    },
+};
 
 
-server.registerSubscriptionDefinition(userSubscriptions);
+server.addExtension(timestampExt);
+server.addExtension(loggingExt);
 server.start();
 

@@ -11,10 +11,11 @@ const client = new Client({
     }
 })
 
+
 const httpServer = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
     try {
         // if (req.method === 'POST') {
-            const user = client.call('doSomething', { name: 'John Does', token: req.method === 'POST' });
+            const user = client.call('doSomething', { name: 'John Doe', token: req.method === 'POST' });
 
             user.then((data) => {
                 console.log(data);

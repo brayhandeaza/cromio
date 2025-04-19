@@ -1,21 +1,14 @@
-// ./src/core/server/index.ts
-
 import EventEmitter from 'events';
 import net from 'net';
+import PQueue from 'p-queue';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
-import { parse } from 'stack-trace';
-import {
-    ClientFromServerType, TriggerCallback, ServerContructorType,
-    MessageDataType, SubscriptionCallback, SubscriptionDefinitionType,
-    TriggerDefinitionType, MiddlewareContextType,
-    TriggerHandler, MiddlewareCallback,
-    LogsType
-} from '../../types';
+import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDataType, SubscriptionCallback, SubscriptionDefinitionType, TriggerDefinitionType, MiddlewareContextType, TriggerHandler, MiddlewareCallback, LogsType } from '../../types';
 import { ALLOW_MESSAGE } from '../../constants';
-import PQueue from 'p-queue';
+import { Extensions, ServerExtension } from './Extensions';
 
-export class Server {
+export class Server<TInjected extends object = {}> {
+    private extensions!: Extensions<TInjected>;
     private port: number;
     private logs: boolean;
     private triggers = new Map<string, TriggerHandler>();
@@ -23,16 +16,16 @@ export class Server {
     private events: SubscriptionDefinitionType = new Map();
     private subscriptions = new Map<string, Map<string, net.Socket>>();
     private clients = new Map<string, ClientFromServerType>();
+    public client: net.Socket | null = null;
     private eventEmitter = new EventEmitter();
     private Logs = {
         trigger: ({ trigger, language, ip }: LogsType) => {
             console.log(`✅ Logs(RPC): trigger="${trigger}" language="${language}" ip="${ip}" message="Request received and processed successfully."`);
         },
         error: ({ trigger, language, ip, message }: LogsType) => {
-            console.log(`❌ Error: trigger="${trigger}" language="${language}" ip="${ip}" message="${message}"`);
+            console.log(`❌ Logs(Error): trigger="${trigger}" language="${language}" ip="${ip}" message="${message}"`);
         }
     }
-
     public event = {
         emit: (event: string, data: any) => this.emitEvent(event, data),
         subscribe: (event: string, callback: (data: any) => void) => this.subscribe(event, callback),
@@ -41,7 +34,16 @@ export class Server {
     constructor({ port = 1000, clients = [], logs = true }: ServerContructorType) {
         this.port = port;
         this.logs = logs;
+
         clients.forEach(client => this.clients.set(client.secretKey, client));
+
+        this.extensions = new Extensions(this as unknown as Server<TInjected> & TInjected);
+
+    }
+
+
+    public addExtension<TNew extends {}>(ext: ServerExtension<TNew>): asserts this is Server<TInjected & TNew> & TNew {
+        this.extensions.useExtension(ext);        
     }
 
     public addMiddleware(callback: TriggerCallback) {
@@ -56,7 +58,6 @@ export class Server {
         this.events.set(event, callback);
         if (this.logs) console.log(`📥 Registered server-side event handler for '${event}'`);
     }
-
 
     public async trigger(name: string, payload: any, credentials: ClientFromServerType) {
         const handler = this.triggers.get(name);
@@ -74,11 +75,16 @@ export class Server {
 
     public start() {
         const server = net.createServer(socket => {
+            this.client = socket;
+
             socket.on('data', async (data) => this.handleIncomingData(socket, data));
+            socket.on('error', (err) => this.break(err));
             socket.on('end', () => this.handleDisconnect(socket));
         });
 
         server.listen(this.port, () => {
+            this.extensions.triggerHook('onStart');
+
             console.log(`🔋 Server listening locally on: host=localhost port=${this.port}`);
             console.log(`🔋 Server listening on: host=${ip()} port=${this.port}\n`);
         });
@@ -105,6 +111,7 @@ export class Server {
     }
 
     private break(err: any) {
+        this.extensions.triggerHook("onError");
         if (err instanceof Error) {
             return err;
         } else if (typeof err === 'string') {
@@ -160,6 +167,10 @@ export class Server {
             const request: MessageDataType = JSON.parse(data.toString());
             const { trigger, payload, uuid, type, credentials } = request;
 
+            this.extensions.triggerHook("onRequest", {
+                request,
+            });
+
             const auth = this.verifyClient(credentials, trigger);
             if (!auth.passed) return this.rejectRequest(socket, auth.message);
 
@@ -175,6 +186,8 @@ export class Server {
     }
 
     private handleDisconnect(socket: net.Socket) {
+        this.extensions.triggerHook("onStop");
+
         this.removeSocketFromAllEvents(socket);
     }
 
@@ -240,19 +253,19 @@ export class Server {
         });
     }
 
-
     private rejectRequest(socket: net.Socket, message: string) {
+        this.extensions.triggerHook("onError");
         this.safeWrite(socket, { error: message });
     }
 
     private safeStringify(input: any): string {
         try {
-          return JSON.stringify(input).replaceAll(/{}\s*/g, '').trim();
+            return JSON.stringify(input).replaceAll(/{}\s*/g, '').trim();
         } catch (err) {
-          return String(input);
+            return String(input);
         }
-      }
-      
+    }
+
 
     private safeWrite(socket: net.Socket, message: any): Promise<void> {
         return new Promise((resolve, reject) => {
@@ -283,7 +296,6 @@ export class Server {
             }
         });
     }
-
 
     private verifyClient(credentials: ClientFromServerType, schema: string): { passed: boolean, message: string } {
         if (!credentials.secretKey) {
