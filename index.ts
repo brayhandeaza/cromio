@@ -3,7 +3,7 @@ import { MiddlewareContextType, ServerExtension } from "./src/types";
 
 
 const server: Server = new Server({
-    logs: false
+    logs: false    
 });
 
 const timestampExt: ServerExtension<{ getTime: () => string, age: number }> = {
@@ -35,6 +35,5 @@ server.addTrigger('doSomething', async (context: MiddlewareContextType<{age: num
 
 
 server.addExtension(timestampExt, timestampExt2);
-
 server.start();
 
