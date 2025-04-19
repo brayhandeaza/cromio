@@ -1,6 +1,11 @@
 import { ClientFromServerType } from '.';
 import { Server } from '../core/server';
 
+export type RequestErrorType = {
+    error: {
+        message: string
+    }
+}
 
 export type ServerExtension<TInjected extends object = any> = {
     injectProperties?(server: Server<TInjected> & TInjected): Partial<TInjected>;

@@ -1,8 +1,14 @@
 import { Client } from '../core/client';
+import { MessageDataType, RequestErrorType } from './server';
 
 export interface ClientType {
     secretKey: string;
 }
+
+export type ClientPluginsType = {
+    requestReceived?: (payload: MessageDataType, socket: Client) => Promise<MessageDataType> | MessageDataType;
+    requestFailed?: (error: RequestErrorType, data: MessageDataType) => void;
+};
 
 
 export interface CredentialsType extends ClientType {
