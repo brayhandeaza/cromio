@@ -27,7 +27,8 @@ export type SubscriptionCallback = (payload: any) => any;
 //     response: (data: any) => void;
 // };
 
-export type MiddlewareContextType = {
+export type MiddlewareContextType<TInjected extends object = any> = {
+    server: Server<TInjected> & TInjected;
     trigger: string;
     credentials: CredentialsType;
     body: any;
@@ -96,3 +97,23 @@ export type LogsType = {
     ip: string,
     message?: string
 }
+
+
+export type ServerExtension<TInjected extends object = any> = {
+    injectProperties?(server: Server<TInjected> & TInjected): Partial<TInjected>;
+
+    onStart?(ctx: { server: Server<TInjected> & TInjected }): void;
+    onRequest?(ctx: {
+        server: Server<TInjected> & TInjected;
+        request: MessageDataType;
+    }): void;
+
+    onError?(ctx: {
+        server: Server<TInjected> & TInjected;
+        error: Error;  // Handling errors with the error object
+    }): void;
+
+    onStop?(ctx: { server: Server<TInjected> & TInjected }): void;
+
+    [key: string]: any;
+};

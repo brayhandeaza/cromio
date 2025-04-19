@@ -3,9 +3,9 @@ import net from 'net';
 import PQueue from 'p-queue';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
-import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDataType, SubscriptionCallback, SubscriptionDefinitionType, TriggerDefinitionType, MiddlewareContextType, TriggerHandler, MiddlewareCallback, LogsType } from '../../types';
+import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDataType, SubscriptionCallback, SubscriptionDefinitionType, TriggerDefinitionType, MiddlewareContextType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension } from '../../types';
 import { ALLOW_MESSAGE } from '../../constants';
-import { Extensions, ServerExtension } from './Extensions';
+import { Extensions } from './Extensions';
 
 export class Server<TInjected extends object = {}> {
     private extensions!: Extensions<TInjected>;
@@ -37,13 +37,20 @@ export class Server<TInjected extends object = {}> {
 
         clients.forEach(client => this.clients.set(client.secretKey, client));
 
-        this.extensions = new Extensions(this as unknown as Server<TInjected> & TInjected);
+        this.extensions = new Extensions();
 
     }
 
 
-    public addExtension<TNew extends {}>(ext: ServerExtension<TNew>): asserts this is Server<TInjected & TNew> & TNew {
-        this.extensions.useExtension(ext);        
+    public addExtension<TNew extends {}>(...exts: ServerExtension<TNew>[]): asserts this is Server<TInjected & TNew> & TNew {
+        exts.forEach(ext => {
+            if (ext.injectProperties) {
+                const injected = ext.injectProperties(this as any); // We assert `any` here internally
+                Object.assign(this, injected);
+            }
+
+            this.extensions.useExtension(ext)
+        });
     }
 
     public addMiddleware(callback: TriggerCallback) {
@@ -83,7 +90,9 @@ export class Server<TInjected extends object = {}> {
         });
 
         server.listen(this.port, () => {
-            this.extensions.triggerHook('onStart');
+            this.extensions.triggerHook('onStart', {
+                server: this
+            });
 
             console.log(`🔋 Server listening locally on: host=localhost port=${this.port}`);
             console.log(`🔋 Server listening on: host=${ip()} port=${this.port}\n`);
@@ -93,6 +102,7 @@ export class Server<TInjected extends object = {}> {
     public addTrigger(name: string, ...callbacks: MiddlewareCallback[]) {
         this.triggers.set(name, async (payload, credentials) => {
             const context: MiddlewareContextType = {
+                server: this,
                 trigger: name,
                 credentials,
                 body: payload,
@@ -111,7 +121,9 @@ export class Server<TInjected extends object = {}> {
     }
 
     private break(err: any) {
-        this.extensions.triggerHook("onError");
+        this.extensions.triggerHook("onError", {
+            server: this,
+        });
         if (err instanceof Error) {
             return err;
         } else if (typeof err === 'string') {
@@ -168,6 +180,7 @@ export class Server<TInjected extends object = {}> {
             const { trigger, payload, uuid, type, credentials } = request;
 
             this.extensions.triggerHook("onRequest", {
+                server: this,
                 request,
             });
 
@@ -186,7 +199,9 @@ export class Server<TInjected extends object = {}> {
     }
 
     private handleDisconnect(socket: net.Socket) {
-        this.extensions.triggerHook("onStop");
+        this.extensions.triggerHook("onStop", {
+            server: this
+        });
 
         this.removeSocketFromAllEvents(socket);
     }
@@ -254,7 +269,9 @@ export class Server<TInjected extends object = {}> {
     }
 
     private rejectRequest(socket: net.Socket, message: string) {
-        this.extensions.triggerHook("onError");
+        this.extensions.triggerHook("onError", {
+            server: this,
+        });
         this.safeWrite(socket, { error: message });
     }
 
