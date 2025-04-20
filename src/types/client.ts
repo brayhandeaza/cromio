@@ -1,5 +1,5 @@
 import { Client } from '../core/client';
-import { MessageDataType, RequestErrorType } from './server';
+import { MessageDataType, RequestErrorType, TSLOptions } from './server';
 
 export interface ClientType {
     secretKey: string;
@@ -17,6 +17,7 @@ export interface CredentialsType extends ClientType {
 }
 
 export type ClientContructorType = {
+    tls?: TSLOptions
     port: number;
     host: string;
     decoder?:  "utf8" | "buffer" | "json" | "base64" | "hex" | "ascii";

@@ -37,7 +37,14 @@ export type SubscriptionType = {
     callback: TriggerCallback;
 }
 
+export type TSLOptions = {
+    key?: string;
+    cert?: string;
+    ca?: string[]
+}
+
 export type ServerContructorType = {
+    tls?: TSLOptions;
     port?: number;
     logs?: boolean;
     clients?: ClientFromServerType[];

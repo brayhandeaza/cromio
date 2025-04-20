@@ -1,9 +1,16 @@
-import { Server } from "./src";
+import { Server, tlsLoader } from "./src";
 import { MiddlewareContextType, ServerExtension } from "./src/types";
+import fs from "fs";
+
 
 
 const server: Server = new Server({
-    logs: false    
+    logs: false,
+    tls: {
+        key: fs.readFileSync(`./tls/key.pem`).toString(),
+        cert: fs.readFileSync(`./tls/cert.pem`).toString(),
+        ca: [fs.readFileSync(`./client-tls/cert.pem`).toString()]
+    }
 });
 
 const timestampExt: ServerExtension<{ getTime: () => string, age: number }> = {
@@ -18,7 +25,7 @@ const timestampExt: ServerExtension<{ getTime: () => string, age: number }> = {
     }
 };
 
-const timestampExt2: ServerExtension<{getTime: () => string, age: number }> = {
+const timestampExt2: ServerExtension<{ getTime: () => string, age: number }> = {
     injectProperties: (server) => ({
         age: 20,
     }),
@@ -28,7 +35,7 @@ const timestampExt2: ServerExtension<{getTime: () => string, age: number }> = {
 };
 
 
-server.addTrigger('doSomething', async (context: MiddlewareContextType<{age: number}>) => {
+server.addTrigger('doSomething', async (context: MiddlewareContextType<{ age: number }>) => {
     console.log('Request doSomething Time: ', context.server.age);
     context.response({ name: 'fianl middleware' });
 });

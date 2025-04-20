@@ -22,5 +22,6 @@ export const LOCALHOST = "127.0.0.1";
 export enum ALLOW_MESSAGE {
     RPC = "rpc",
     EVENT = "event",
-    SUBSCRIBE = "subscribe"
+    SUBSCRIBE = "subscribe",
+    UNSUBSCRIBE = "unsubscribe"
 }

@@ -1,11 +1,15 @@
 import EventEmitter from 'events';
-import net from 'net';
+// import net from 'net';
 import PQueue from 'p-queue';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
-import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDataType, SubscriptionCallback, SubscriptionDefinitionType, TriggerDefinitionType, MiddlewareContextType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension } from '../../types';
+import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDataType, SubscriptionCallback, SubscriptionDefinitionType, TriggerDefinitionType, MiddlewareContextType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension, TSLOptions } from '../../types';
 import { ALLOW_MESSAGE } from '../../constants';
 import { Extensions } from './Extensions';
+import TLS from 'tls';
+import net from 'net';
+import { calculateConcurrency, safeStringify } from '../../helpers';
+
 
 export class Server<TInjected extends object = {}> {
     private extensions!: Extensions<TInjected>;
@@ -14,10 +18,12 @@ export class Server<TInjected extends object = {}> {
     private triggers = new Map<string, TriggerHandler>();
     private globalMiddlewares: TriggerCallback[] = [];
     private events: SubscriptionDefinitionType = new Map();
-    private subscriptions = new Map<string, Map<string, net.Socket>>();
+    private subscriptions = new Map<string, Map<string, TLS.TLSSocket | net.Socket>>();
     private clients = new Map<string, ClientFromServerType>();
-    public client: net.Socket | null = null;
+    public client: TLS.TLSSocket | net.Socket | null = null;
+    public server: TLS.TLSSocket | net.Socket | null = null;
     private eventEmitter = new EventEmitter();
+    private tls: TSLOptions | null = null;
     private Logs = {
         trigger: ({ trigger, language, ip }: LogsType) => {
             console.log(`✅ Logs(RPC): trigger="${trigger}" language="${language}" ip="${ip}" message="Request received and processed successfully."`);
@@ -31,14 +37,57 @@ export class Server<TInjected extends object = {}> {
         subscribe: (event: string, callback: (data: any) => void) => this.subscribe(event, callback),
     };
 
-    constructor({ port = 1000, clients = [], logs = true }: ServerContructorType) {
+    constructor({ port = 1000, clients = [], logs = true, tls }: ServerContructorType) {
         this.port = port;
         this.logs = logs;
+        this.tls = tls || null;
+
 
         clients.forEach(client => this.clients.set(client.secretKey, client));
-
         this.extensions = new Extensions();
 
+    }
+
+
+    public start() {
+        if (this.tls?.key && this.tls?.cert) {
+            const tlsOptions = {
+                key: Buffer.from(this.tls.key || ''),
+                cert: Buffer.from(this.tls.cert || ''),
+            };
+            const server = TLS.createServer(tlsOptions, (socket) => {
+                this.client = socket;
+
+                socket.on('data', async (data) => this.handleIncomingData(socket, data));
+                socket.on('error', (err) => this.break(err));
+                socket.on('end', () => this.handleDisconnect(socket));
+            });
+
+            server.listen(this.port, () => {
+                this.extensions.triggerHook('onStart', {
+                    server: this
+                });
+
+                console.log(`🔐 TLS Server listening locally on: tls=true host=localhost port=${this.port}`);
+                console.log(`🔐 TLS Server listening on: tls=true host=${ip()} port=${this.port}\n`);
+            });
+        } else {
+            const server = net.createServer(socket => {
+                this.client = socket;
+                socket.on('data', async (data) => this.handleIncomingData(socket, data));
+                socket.on('error', (err) => this.break(err));
+                socket.on('end', () => this.handleDisconnect(socket));
+            });
+
+            server.listen(this.port, () => {
+                this.extensions.triggerHook('onStart', {
+                    server: this
+                });
+
+                console.log(`🌐 TPC Server listening locally on: tls='${this.tls}' host=localhost port=${this.port}`);
+                console.log(`🌐 TPC Server listening on: tls='${this.tls}' host=${ip()} port=${this.port}\n`);
+            });
+        }
     }
 
 
@@ -80,25 +129,6 @@ export class Server<TInjected extends object = {}> {
         this.events = new Map([...this.events, ...subscriptions]);
     }
 
-    public start() {
-        const server = net.createServer(socket => {
-            this.client = socket;
-
-            socket.on('data', async (data) => this.handleIncomingData(socket, data));
-            socket.on('error', (err) => this.break(err));
-            socket.on('end', () => this.handleDisconnect(socket));
-        });
-
-        server.listen(this.port, () => {
-            this.extensions.triggerHook('onStart', {
-                server: this
-            });
-
-            console.log(`🔋 Server listening locally on: host=localhost port=${this.port}`);
-            console.log(`🔋 Server listening on: host=${ip()} port=${this.port}\n`);
-        });
-    }
-
     public addTrigger(name: string, ...callbacks: MiddlewareCallback[]) {
         this.triggers.set(name, async (payload, credentials) => {
             const context: MiddlewareContextType = {
@@ -119,6 +149,12 @@ export class Server<TInjected extends object = {}> {
             await this.runMiddlewareChain([...this.globalMiddlewares, ...callbacks], context);
         });
     }
+
+
+    // ###### PRIVATE METHODS ######
+    // ######
+
+  
 
     private break(err: any) {
         this.extensions.triggerHook("onError", {
@@ -174,7 +210,7 @@ export class Server<TInjected extends object = {}> {
         }
     }
 
-    private async handleIncomingData(socket: net.Socket, data: Buffer) {
+    private async handleIncomingData(socket: TLS.TLSSocket | net.Socket, data: Buffer) {
         try {
             const request: MessageDataType = JSON.parse(data.toString());
             const { trigger, payload, uuid, type, credentials } = request;
@@ -198,7 +234,7 @@ export class Server<TInjected extends object = {}> {
         }
     }
 
-    private handleDisconnect(socket: net.Socket) {
+    private handleDisconnect(socket: TLS.TLSSocket | net.Socket) {
         this.extensions.triggerHook("onStop", {
             server: this
         });
@@ -206,7 +242,7 @@ export class Server<TInjected extends object = {}> {
         this.removeSocketFromAllEvents(socket);
     }
 
-    private async handleSUBSCRIBE(trigger: string, socket: net.Socket, uuid: string) {
+    private async handleSUBSCRIBE(trigger: string, socket: TLS.TLSSocket | net.Socket, uuid: string) {
         if (!this.subscriptions.has(trigger)) {
             this.subscriptions.set(trigger, new Map());
         }
@@ -215,7 +251,7 @@ export class Server<TInjected extends object = {}> {
         this.safeWrite(socket, { initialized: trigger });
     }
 
-    private async handleEVENT(trigger: string, payload: any, socket: net.Socket, uuid: string, credentials: ClientFromServerType) {
+    private async handleEVENT(trigger: string, payload: any, socket: TLS.TLSSocket | net.Socket, uuid: string, credentials: ClientFromServerType) {
         const callback = this.events.get(trigger);
         const verified = this.verifyEvent(!!callback, credentials, trigger, uuid);
         if (!verified.passed) return this.safeWrite(socket, { error: verified.message });
@@ -229,7 +265,7 @@ export class Server<TInjected extends object = {}> {
         this.safeWrite(socket, { subscribed: trigger });
     }
 
-    private async handleRPC(trigger: string, payload: any, socket: net.Socket, credentials: ClientFromServerType) {
+    private async handleRPC(trigger: string, payload: any, socket: TLS.TLSSocket | net.Socket, credentials: ClientFromServerType) {
         try {
             const handler = this.triggers.get(trigger);
             if (!handler) {
@@ -253,7 +289,7 @@ export class Server<TInjected extends object = {}> {
         }
 
         const memoryUsedMB = process.memoryUsage().heapUsed / 1024 / 1024;
-        const concurrency = Math.max(1, Math.min(subscribers.size, this.calculateConcurrency(memoryUsedMB)));
+        const concurrency = Math.max(1, Math.min(subscribers.size, calculateConcurrency(memoryUsedMB)));
         const queue = new PQueue({ concurrency });
 
         if (this.logs)
@@ -268,40 +304,25 @@ export class Server<TInjected extends object = {}> {
         });
     }
 
-    private rejectRequest(socket: net.Socket, message: string) {
+    private rejectRequest(socket: TLS.TLSSocket | net.Socket, message: string) {
         this.extensions.triggerHook("onError", {
             server: this,
         });
         this.safeWrite(socket, { error: message });
     }
 
-    private safeStringify(input: any): string {
-        try {
-            return JSON.stringify(input).replaceAll(/{}\s*/g, '').trim();
-        } catch (err) {
-            return String(input);
-        }
-    }
 
-
-    private safeWrite(socket: net.Socket, message: any): Promise<void> {
+    private safeWrite(socket: TLS.TLSSocket | net.Socket, message: any): Promise<void> {
         return new Promise((resolve, reject) => {
-            socket.write(Buffer.from(this.safeStringify(message)), err => {
+            socket.write(Buffer.from(safeStringify(message)), err => {
                 if (err) return reject(err);
                 resolve();
             });
         });
     }
 
-    private calculateConcurrency(memoryUsedMB: number): number {
-        if (memoryUsedMB < 100) return 10;
-        if (memoryUsedMB < 200) return 7;
-        if (memoryUsedMB < 300) return 5;
-        if (memoryUsedMB < 400) return 3;
-        return 1;
-    }
 
-    private removeSocketFromAllEvents(socket: net.Socket) {
+    private removeSocketFromAllEvents(socket: TLS.TLSSocket | net.Socket) {
         this.subscriptions.forEach((subscribers, event) => {
             for (const [id, clientSocket] of subscribers.entries()) {
                 if (clientSocket === socket) {

@@ -1,6 +1,7 @@
-import { Client, ENCODER, subscriptionDefinition } from "./src"
+import { Client, ENCODER, subscriptionDefinition, tlsLoader } from "./src"
 import http, { IncomingMessage, ServerResponse } from "http"
-import { SubscriptionDefinitionType } from "./src/types";
+import fs from "fs";
+
 
 const client = new Client({
     host: 'localhost',
@@ -8,27 +9,30 @@ const client = new Client({
     decoder: ENCODER.JSON,
     credentials: {
         secretKey: '5d8c957c754136994cf790daa351f5df28c7fac6d89f4f59f46c259177e1c6be'
+    },
+    tls: {
+        key: fs.readFileSync(`./client-tls/key.pem`).toString(),
+        cert: fs.readFileSync(`./client-tls/cert.pem`).toString(),
+        ca: [fs.readFileSync(`./tls/cert.pem`).toString()]
     }
 })
 
 
 const httpServer = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
     try {
+
         // if (req.method === 'POST') {
-            const user = client.call('doSomething', { name: 'John Doe', token: req.method === 'POST' });
+        const user = client.call('doSomething', { name: 'John Doe', token: req.method === 'POST' });
 
-            user.then((data) => {
-                console.log(data);
-            }).catch((error) => {
-                console.error(error);
-            })
+        user.then((data) => {
+            console.log({data});
+        }).catch((error) => {
+            console.error(error);
+        })
 
-            // client.call('doSomething', { name: 'John Doe', token: req.method === 'POST' });
-
-
-            res.setHeader('Content-Type', 'application/json');
-            res.writeHead(200);
-            res.end(JSON.stringify("user"));
+        res.setHeader('Content-Type', 'application/json');
+        res.writeHead(200);
+        res.end(JSON.stringify("user"));
         // }
 
     } catch (error) {
