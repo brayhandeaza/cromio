@@ -4,6 +4,7 @@ import { ip } from 'address';
 import { ClientContructorType, CredentialsType, EncodingType, MessageDataType, ClientPluginsType, SubscriptionDefinitionType, TSLOptions } from '../../types';
 import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM } from '../../constants';
 import shortUUID, { uuid } from 'short-uuid';
+import zlib from 'zlib';
 
 export class Client {
     private host: string;
@@ -115,7 +116,8 @@ export class Client {
     }
 
 
-    private incomingData(data: any, resolve: (data: any) => void, reject: (error: any) => void, client: net.Socket | TLS.TLSSocket) {
+    private incomingData(compressedData: Buffer, resolve: (data: any) => void, reject: (error: any) => void, client: net.Socket | TLS.TLSSocket) {
+        const data = zlib.unzipSync(compressedData);
         try {
             switch (this.decoder) {
                 case "json":

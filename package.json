@@ -12,7 +12,6 @@
     "build": "tsup"
   },
   "dependencies": {
-    "@types/express": "^5.0.1",
     "@types/stack-trace": "^0.0.33",
     "address": "^2.0.3",
     "buffer": "^6.0.3",

@@ -1,7 +1,6 @@
-import { Client, ENCODER, subscriptionDefinition, tlsLoader } from "./src"
+import { Client, ENCODER } from "./src"
 import http, { IncomingMessage, ServerResponse } from "http"
 import fs from "fs";
-
 
 const client = new Client({
     host: 'localhost',

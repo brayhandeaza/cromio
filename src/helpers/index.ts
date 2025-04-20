@@ -20,16 +20,6 @@ export const subscriptionDefinition = (subscriptions?: SubscriptionType[]): Subs
 	return definition
 }
 
-
-export const tlsLoader = (tlsFolderPath: string, keyFile: string = 'key.pem', certFile: string = 'cert.pem'): { key: string; cert: string } => {
-
-	return {
-		key: fs.readFileSync(`${tlsFolderPath}/${keyFile}`).toString(),
-		cert: fs.readFileSync(`${tlsFolderPath}/${certFile}`).toString()
-	};
-};
-
-
 export const safeStringify = (input: any): string => {
 	try {
 		return JSON.stringify(input).replaceAll(/{}\s*/g, '').trim();

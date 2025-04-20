@@ -9,6 +9,7 @@ import { Extensions } from './Extensions';
 import TLS from 'tls';
 import net from 'net';
 import { calculateConcurrency, safeStringify } from '../../helpers';
+import zlib from 'zlib';
 
 
 export class Server<TInjected extends object = {}> {
@@ -90,7 +91,6 @@ export class Server<TInjected extends object = {}> {
         }
     }
 
-
     public addExtension<TNew extends {}>(...exts: ServerExtension<TNew>[]): asserts this is Server<TInjected & TNew> & TNew {
         exts.forEach(ext => {
             if (ext.injectProperties) {
@@ -152,9 +152,7 @@ export class Server<TInjected extends object = {}> {
 
 
     // ###### PRIVATE METHODS ######
-    // ######
-
-  
+    // #############################
 
     private break(err: any) {
         this.extensions.triggerHook("onError", {
@@ -314,9 +312,11 @@ export class Server<TInjected extends object = {}> {
 
     private safeWrite(socket: TLS.TLSSocket | net.Socket, message: any): Promise<void> {
         return new Promise((resolve, reject) => {
-            socket.write(Buffer.from(safeStringify(message)), err => {
-                if (err) return reject(err);
-                resolve();
+            zlib.gzip(safeStringify(message), (_, buffer) => {               
+                socket.write(buffer, err => {
+                    if (err) return reject(err);
+                    resolve();
+                });
             });
         });
     }
