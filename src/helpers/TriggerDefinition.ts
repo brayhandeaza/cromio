@@ -1,13 +1,14 @@
-import { TriggerCallback, TriggerDefinitionType, TriggerType } from "../types";
+import { MiddlewareCallback, TriggerCallback, TriggerDefinitionType, TriggerType } from "../types";
 
 export class TriggerDefinition {
-    triggers: TriggerDefinitionType = new Map();
+    triggers: TriggerDefinitionType = new Map<string, TriggerCallback>();
     constructor(triggers: TriggerType[] = []) {
         this.triggers = this.triggerDefinition(triggers);
     }
 
-    public addTrigger(name: string, callback: TriggerCallback): void {
-        this.triggers.set(name, callback);
+
+    public addTrigger(name: string, ...callbacks: MiddlewareCallback[]): void {
+        callbacks.forEach((callback) => this.triggers.set(name, callback));
     }
 
     private triggerDefinition = (triggers: TriggerType[]): Map<string, TriggerCallback> => {

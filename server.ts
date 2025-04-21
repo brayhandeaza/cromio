@@ -1,6 +1,6 @@
+import { MiddlewareContextType, Server, triggerDefinition } from "./src"
 import fs from "fs";
-import { Server } from "./src";
-import { MiddlewareContextType, ServerExtension } from "./src/types";
+import users from "./data.json"
 
 
 const server: Server = new Server({
@@ -12,11 +12,12 @@ const server: Server = new Server({
     }
 });
 
+const userTriggers = triggerDefinition()
 
-server.addTrigger('doSomething', async (context: MiddlewareContextType) => {
-    context.response({ name: 'fianl middleware' });
-});
+server.addTrigger("getUsers", async (ctx: MiddlewareContextType) => {    
+    ctx.response(users)
+})
 
 
+server.registerTriggerDefinition(userTriggers)
 server.start();
-

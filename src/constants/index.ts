@@ -1,5 +1,5 @@
 export enum ENCODER {
-    UTF8 = "utf8",
+    UTF8 = "utf-8",
     BUFFER = "buffer",
     JSON = "json",
     BASE64 = "base64",
@@ -8,7 +8,7 @@ export enum ENCODER {
 }
 
 export enum DECODER {
-    UTF8 = "utf8",
+    UTF8 = "utf-8",
     BUFFER = "buffer",
     JSON = "json",
     BASE64 = "base64",

@@ -1,3 +1,4 @@
+import { EncodingType } from '.';
 import { Client } from '../core/client';
 import { MessageDataType, RequestErrorType, TSLOptions } from './server';
 
@@ -20,7 +21,7 @@ export type ClientContructorType = {
     tls?: TSLOptions
     port: number;
     host: string;
-    decoder?:  "utf8" | "buffer" | "json" | "base64" | "hex" | "ascii";
+    decoder?:  EncodingType;
     credentials?: ClientType;
 }
 

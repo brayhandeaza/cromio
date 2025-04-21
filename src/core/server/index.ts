@@ -1,15 +1,14 @@
 import EventEmitter from 'events';
-// import net from 'net';
 import PQueue from 'p-queue';
+import zlib from 'zlib';
+import TLS from 'tls';
+import net from 'net';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
 import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDataType, SubscriptionCallback, SubscriptionDefinitionType, TriggerDefinitionType, MiddlewareContextType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension, TSLOptions } from '../../types';
 import { ALLOW_MESSAGE } from '../../constants';
 import { Extensions } from './Extensions';
-import TLS from 'tls';
-import net from 'net';
 import { calculateConcurrency, safeStringify } from '../../helpers';
-import zlib from 'zlib';
 
 
 export class Server<TInjected extends object = {}> {
@@ -122,7 +121,10 @@ export class Server<TInjected extends object = {}> {
     }
 
     public registerTriggerDefinition({ triggers }: { triggers: TriggerDefinitionType }) {
-        this.triggers = new Map([...this.triggers, ...triggers]);
+        triggers.forEach((callback, name) => {
+            this.addTrigger(name, callback);
+        })
+
     }
 
     public registerSubscriptionDefinition({ subscriptions }: { subscriptions: SubscriptionDefinitionType }) {
@@ -215,7 +217,15 @@ export class Server<TInjected extends object = {}> {
 
             this.extensions.triggerHook("onRequest", {
                 server: this,
-                request,
+                request: {
+                    trigger,
+                    type,
+                    payload,
+                    client: {
+                        uuid,
+                        ...credentials
+                    }
+                },
             });
 
             const auth = this.verifyClient(credentials, trigger);
@@ -268,12 +278,16 @@ export class Server<TInjected extends object = {}> {
             const handler = this.triggers.get(trigger);
             if (!handler) {
                 const msg = `Schema '${trigger}' not found on server side.`;
-                return this.safeWrite(socket, { error: msg });
+                throw new Error(msg);
             }
 
             const result = await handler(payload, { ...credentials, socket });
-            this.safeWrite(socket, result);
-        } catch (error) {
+            if (!result) {
+                this.safeWrite(socket, result);
+            }
+
+        } catch (error: any) {
+            this.safeWrite(socket, { error: error.toString() });
             console.log({ error });
         }
     }
@@ -309,18 +323,15 @@ export class Server<TInjected extends object = {}> {
         this.safeWrite(socket, { error: message });
     }
 
+    private safeWrite(socket: TLS.TLSSocket | net.Socket, message: any) {
+        if (message) {
+            const buffer = Buffer.from(safeStringify(message), "utf8");
+            const lengthBuffer = Buffer.alloc(4);
+            lengthBuffer.writeUInt32BE(buffer.length, 0);            
 
-    private safeWrite(socket: TLS.TLSSocket | net.Socket, message: any): Promise<void> {
-        return new Promise((resolve, reject) => {
-            zlib.gzip(safeStringify(message), (_, buffer) => {               
-                socket.write(buffer, err => {
-                    if (err) return reject(err);
-                    resolve();
-                });
-            });
-        });
+            socket.write(Buffer.concat([lengthBuffer, buffer]));           
+        }
     }
-
 
     private removeSocketFromAllEvents(socket: TLS.TLSSocket | net.Socket) {
         this.subscriptions.forEach((subscribers, event) => {

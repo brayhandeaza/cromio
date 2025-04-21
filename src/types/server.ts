@@ -9,20 +9,17 @@ export type RequestErrorType = {
 
 export type ServerExtension<TInjected extends object = any> = {
     injectProperties?(server: Server<TInjected> & TInjected): Partial<TInjected>;
-
     onStart?(ctx: { server: Server<TInjected> & TInjected }): void;
     onRequest?(ctx: {
         server: Server<TInjected> & TInjected;
-        request: MessageDataType;
+        request: OnRequestDataType;
     }): void;
-
     onError?(ctx: {
         server: Server<TInjected> & TInjected;
         error: Error;  // Handling errors with the error object
     }): void;
 
     onStop?(ctx: { server: Server<TInjected> & TInjected }): void;
-
     [key: string]: any;
 };
 
@@ -57,6 +54,16 @@ export type MessageDataType = {
     payload: any,
     credentials: ClientFromServerType
 }
+
+export type OnRequestDataType = {
+    trigger: string,
+    payload: any,
+    type: string,
+    client: ClientFromServerType & {
+        uuid: string       
+    }
+}
+
 
 export type TriggerCallback = (payload: any) => any;
 export type SubscriptionCallback = (payload: any) => any;
