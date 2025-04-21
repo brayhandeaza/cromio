@@ -326,15 +326,23 @@ export class Server<TInjected extends object = {}> {
     private async safeWrite(socket: TLS.TLSSocket | net.Socket, data: any) {
         if (data) {
             const buffer = Buffer.from(safeStringify(data), "utf8");
-            const lengthBuffer = Buffer.alloc(4);
-            lengthBuffer.writeUInt32BE(buffer.length, 0);
+            const messageBuffer = Buffer.concat([
+                Buffer.alloc(4), // placeholder for uncompressed length
+                buffer
+            ]);
 
-            const message = Buffer.concat([lengthBuffer, buffer])
-            const compressedBuffer = await gzip(message)
+            messageBuffer.writeUInt32BE(buffer.length, 0); // original message size
 
-            socket.write(compressedBuffer);
+            const compressedBuffer = zlib.gzipSync(messageBuffer);
+            const compressedLength = Buffer.alloc(4);
+            compressedLength.writeUInt32BE(compressedBuffer.length, 0);
+
+            const fullMessage = Buffer.concat([compressedLength, compressedBuffer]);
+
+            socket.write(fullMessage); // ✅ send with known size
         }
     }
+
 
     private removeSocketFromAllEvents(socket: TLS.TLSSocket | net.Socket) {
         this.subscriptions.forEach((subscribers, event) => {

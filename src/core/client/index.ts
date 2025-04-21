@@ -86,35 +86,47 @@ export class Client {
 
                 })
 
-                let buffer = Buffer.alloc(0);
-                let messageLength: number | null = null;
+                let rawBuffer = Buffer.alloc(0);
+                let compressedLength: number | null = null;
 
-                client.on('data', (chunk) => {
-                    buffer = Buffer.concat([buffer, chunk]);
+                client.on('data', async (chunk) => {
+                    rawBuffer = Buffer.concat([rawBuffer, chunk]);
 
-                    // We can read the message length
-                    if (messageLength === null && buffer.length >= 4) {
-                        messageLength = buffer.readUInt32BE(0);
-                    }
-
-                    // We can read the full message
-                    if (messageLength !== null && buffer.length >= 4 + messageLength) {
-                        const messageBuffer = buffer.subarray(4, 4 + messageLength); // exact range
-
-                        // Trim the buffer in case more messages arrive later
-                        buffer = buffer.subarray(4 + messageLength);
-                        messageLength = null; // reset for the next message
-
-                        if (this.decoder === DECODER.JSON) {
-                            resolve(JSON.parse(messageBuffer.toString("utf8")));
-                        } else if (this.decoder === DECODER.BUFFER) {
-                            resolve(messageBuffer); // ✅ only the message body
-                        } else {
-                            resolve(messageBuffer.toString(this.decoder));
+                    while (true) {
+                        if (compressedLength === null && rawBuffer.length >= 4) {
+                            compressedLength = rawBuffer.readUInt32BE(0);
+                            rawBuffer = rawBuffer.subarray(4);
                         }
 
+                        if (compressedLength !== null && rawBuffer.length >= compressedLength) {
+                            const compressedData = rawBuffer.subarray(0, compressedLength);
+                            rawBuffer = rawBuffer.subarray(compressedLength);
+                            compressedLength = null;
+
+                            let decompressed;
+                            try {
+                                decompressed = zlib.unzipSync(compressedData);
+                            } catch (err) {
+                                console.error("Failed to unzip:", err);
+                                return;
+                            }
+
+                            const messageLength = decompressed.readUInt32BE(0);
+                            const messageBuffer = decompressed.subarray(4, 4 + messageLength);
+
+                            if (this.decoder === DECODER.JSON) {
+                                resolve(JSON.parse(messageBuffer.toString("utf8")));
+                            } else if (this.decoder === DECODER.BUFFER) {
+                                resolve(messageBuffer);
+                            } else {
+                                resolve(messageBuffer.toString(this.decoder));
+                            }
+                        } else {
+                            break; // not enough data yet
+                        }
                     }
                 });
+
 
                 client.on('error', (err) => reject(err));
                 client.on('end', () => this.handleDisconnect(client));
@@ -135,32 +147,44 @@ export class Client {
                 });
 
 
-                let buffer = Buffer.alloc(0);
-                let messageLength: number | null = null;
+                let rawBuffer = Buffer.alloc(0);
+                let compressedLength: number | null = null;
 
-                client.on('data', async (data) => {
-                    const chunk = await unzip(data)
-                    buffer = Buffer.concat([buffer, chunk]);
+                client.on('data', async (chunk) => {
+                    rawBuffer = Buffer.concat([rawBuffer, chunk]);
 
-                    // We can read the message length
-                    if (messageLength === null && buffer.length >= 4) {
-                        messageLength = buffer.readUInt32BE(0);
-                    }
+                    while (true) {
+                        if (compressedLength === null && rawBuffer.length >= 4) {
+                            compressedLength = rawBuffer.readUInt32BE(0);
+                            rawBuffer = rawBuffer.subarray(4);
+                        }
 
-                    // We can read the full message
-                    if (messageLength !== null && buffer.length >= 4 + messageLength) {
-                        const messageBuffer = buffer.subarray(4, 4 + messageLength); // exact range
+                        if (compressedLength !== null && rawBuffer.length >= compressedLength) {
+                            const compressedData = rawBuffer.subarray(0, compressedLength);
+                            rawBuffer = rawBuffer.subarray(compressedLength);
+                            compressedLength = null;
 
-                        // Trim the buffer in case more messages arrive later
-                        buffer = buffer.subarray(4 + messageLength);
-                        messageLength = null; // reset for the next message                 
+                            let decompressed;
+                            try {
+                                decompressed = zlib.unzipSync(compressedData);
+                            } catch (err) {
+                                console.error("Failed to unzip:", err);
+                                return;
+                            }
 
-                        if (this.decoder === DECODER.JSON) {
-                            resolve(JSON.parse(messageBuffer.toString("utf8")));
-                        } else if (this.decoder === DECODER.BUFFER) {
-                            resolve(messageBuffer); // ✅ only the message body
+                            const messageLength = decompressed.readUInt32BE(0);
+                            const messageBuffer = decompressed.subarray(4, 4 + messageLength);
+
+                            if (this.decoder === DECODER.JSON) {
+                                resolve(JSON.parse(messageBuffer.toString("utf8")));
+                            } else if (this.decoder === DECODER.BUFFER) {
+                                resolve(messageBuffer);
+                            } else {
+                                resolve(messageBuffer.toString(this.decoder));
+                            }
+
                         } else {
-                            resolve(messageBuffer.toString(this.decoder));
+                            break; // not enough data yet
                         }
                     }
                 });
