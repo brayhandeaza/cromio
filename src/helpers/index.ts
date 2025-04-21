@@ -1,9 +1,8 @@
-import path from "path";
-import { SubscriptionType, TriggerCallback, TriggerType } from "../types";
+import { SubscriptionType, TriggerType } from "../types";
 import { SubscriptionDefinition } from "./SubscriptionDefinition";
 import { TriggerDefinition } from "./TriggerDefinition";
-import fs from 'fs';
-
+import zlib from 'zlib';
+import { promisify } from 'util';
 
 
 export const triggerDefinition = (triggers?: TriggerType[]): TriggerDefinition => {
@@ -36,3 +35,8 @@ export const calculateConcurrency = (memoryUsedMB: number): number => {
 	if (memoryUsedMB < 400) return 3;
 	return 1;
 }
+
+
+
+export const gzip = promisify(zlib.gzip);
+export const unzip = promisify(zlib.unzip);

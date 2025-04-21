@@ -8,7 +8,7 @@ import { ip } from 'address';
 import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDataType, SubscriptionCallback, SubscriptionDefinitionType, TriggerDefinitionType, MiddlewareContextType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension, TSLOptions } from '../../types';
 import { ALLOW_MESSAGE } from '../../constants';
 import { Extensions } from './Extensions';
-import { calculateConcurrency, safeStringify } from '../../helpers';
+import { calculateConcurrency, gzip, safeStringify } from '../../helpers';
 
 
 export class Server<TInjected extends object = {}> {
@@ -323,13 +323,16 @@ export class Server<TInjected extends object = {}> {
         this.safeWrite(socket, { error: message });
     }
 
-    private safeWrite(socket: TLS.TLSSocket | net.Socket, message: any) {
-        if (message) {
-            const buffer = Buffer.from(safeStringify(message), "utf8");
+    private async safeWrite(socket: TLS.TLSSocket | net.Socket, data: any) {
+        if (data) {
+            const buffer = Buffer.from(safeStringify(data), "utf8");
             const lengthBuffer = Buffer.alloc(4);
-            lengthBuffer.writeUInt32BE(buffer.length, 0);            
+            lengthBuffer.writeUInt32BE(buffer.length, 0);
 
-            socket.write(Buffer.concat([lengthBuffer, buffer]));           
+            const message = Buffer.concat([lengthBuffer, buffer])
+            const compressedBuffer = await gzip(message)
+
+            socket.write(compressedBuffer);
         }
     }
 

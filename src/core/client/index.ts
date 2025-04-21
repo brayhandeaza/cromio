@@ -6,6 +6,8 @@ import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM } from '../../constants';
 import shortUUID, { uuid } from 'short-uuid';
 import zlib from 'zlib';
 import { Buffer } from 'buffer';
+import { promisify } from 'util';
+import { unzip } from '../../helpers';
 
 export class Client {
     private host: string;
@@ -114,7 +116,6 @@ export class Client {
                     }
                 });
 
-                // client.on('data', (data) => this.incomingData(data, resolve, reject, client));
                 client.on('error', (err) => reject(err));
                 client.on('end', () => this.handleDisconnect(client));
                 client.on('close', () => this.handleDisconnect(client));
@@ -137,7 +138,8 @@ export class Client {
                 let buffer = Buffer.alloc(0);
                 let messageLength: number | null = null;
 
-                client.on('data', (chunk) => {
+                client.on('data', async (data) => {
+                    const chunk = await unzip(data)
                     buffer = Buffer.concat([buffer, chunk]);
 
                     // We can read the message length
@@ -151,12 +153,17 @@ export class Client {
 
                         // Trim the buffer in case more messages arrive later
                         buffer = buffer.subarray(4 + messageLength);
-                        messageLength = null; // reset for the next message
+                        messageLength = null; // reset for the next message                 
 
-                        resolve(messageBuffer.toString("utf8")); // ✅ only the message body
+                        if (this.decoder === DECODER.JSON) {
+                            resolve(JSON.parse(messageBuffer.toString("utf8")));
+                        } else if (this.decoder === DECODER.BUFFER) {
+                            resolve(messageBuffer); // ✅ only the message body
+                        } else {
+                            resolve(messageBuffer.toString(this.decoder));
+                        }
                     }
                 });
-
 
                 client.on('error', (err) => reject(err));
                 client.on('end', () => this.handleDisconnect(client));
@@ -181,25 +188,39 @@ export class Client {
 
 
 
-    private async incomingData(data: Buffer, resolve: (data: any) => void, reject: (error: any) => void, client: net.Socket | TLS.TLSSocket) {
+    private async incomingData(data: Buffer, resolve: (data: any) => void, reject: (error: any) => void) {
+        let buffer = Buffer.alloc(0);
+        let messageLength: number | null = null;
+
+        buffer = Buffer.concat([buffer, data]);
+
         try {
-            switch (true) {
-                case this.decoder === DECODER.JSON:
-                    resolve(this.safeJSONParse(data.toString()));
-                    break;
-                case this.decoder === DECODER.BASE64 || this.decoder === DECODER.ASCII || this.decoder === DECODER.UTF8 || this.decoder === DECODER.HEX:
-                    resolve(data.toString(this.decoder));
-                    break;
-                default:
-                    resolve(data);
-                    break;
+            // We can read the message length
+            if (messageLength === null && buffer.length >= 4) {
+                messageLength = buffer.readUInt32BE(0);
             }
 
-        } catch (err: any) {
-            reject(err.toString());
+            // We can read the full message
+            if (messageLength !== null && buffer.length >= 4 + messageLength) {
+                const messageBuffer = buffer.subarray(4, 4 + messageLength); // exact range
+
+                // Trim the buffer in case more messages arrive later
+                buffer = buffer.subarray(4 + messageLength);
+                messageLength = null; // reset for the next message
+
+                if (this.decoder === DECODER.JSON) {
+                    resolve(JSON.parse(messageBuffer.toString("utf8")));
+                } else if (this.decoder === DECODER.BUFFER) {
+                    resolve(messageBuffer); // ✅ only the message body
+                } else {
+                    resolve(messageBuffer.toString(this.decoder));
+                }
+            }
+
+        } catch (error: any) {
+            reject(error.toString());
         }
     }
-
 
 
     private createFlexibleServer() {
