@@ -10,7 +10,7 @@ const tls = {
 
 const server: Server = new Server({
     logs: false,
-    // tls
+    tls
 });
 
 const userTriggers = triggerDefinition()
