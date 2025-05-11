@@ -8,14 +8,16 @@ const tls = {
     ca: [fs.readFileSync(`./client-tls/cert.pem`).toString()]
 }
 
+const port = Number(process.argv[2])
 const server: Server = new Server({
     logs: false,
-    tls
+    tls,
+    port
 });
 
 const userTriggers = triggerDefinition()
 
-server.addTrigger("getUsers", async (ctx: MiddlewareContextType) => {    
+server.addTrigger("getUsers", async (ctx: MiddlewareContextType) => {
     ctx.response(users)
 })
 

@@ -215,6 +215,8 @@ export class Server<TInjected extends object = {}> {
             const request: MessageDataType = JSON.parse(data.toString());
             const { trigger, payload, uuid, type, credentials } = request;
 
+            console.log("📥 Received:", request);
+            
             this.extensions.triggerHook("onRequest", {
                 server: this,
                 request: {
@@ -225,7 +227,7 @@ export class Server<TInjected extends object = {}> {
                         uuid,
                         ...credentials
                     }
-                },
+                }
             });
 
             const auth = this.verifyClient(credentials, trigger);

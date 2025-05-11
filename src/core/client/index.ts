@@ -1,25 +1,22 @@
 import net from 'net';
 import TLS from 'tls';
-import { ip } from 'address';
-import { ClientContructorType, CredentialsType, EncodingType, MessageDataType, ClientPluginsType, SubscriptionDefinitionType, TSLOptions } from '../../types';
-import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM } from '../../constants';
-import shortUUID, { uuid } from 'short-uuid';
+import shortUUID from 'short-uuid';
 import zlib from 'zlib';
+import { ip } from 'address';
+import { CredentialsType, EncodingType, MessageDataType, ClientPluginsType, SubscriptionDefinitionType, ServerOptions, ClientConfig } from '../../types';
+import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM } from '../../constants';
 import { Buffer } from 'buffer';
-import { promisify } from 'util';
-import { unzip } from '../../helpers';
+
 
 export class Client {
-    private host: string;
-    private port: number;
     private clientId: string = shortUUID.generate();
     private decoder: EncodingType;
     private credentials: CredentialsType | undefined;
     private eventSockets: Map<string, net.Socket> = new Map();
-    // private eventEmitterSocket: net.Socket = new net.Socket();
     private plugins: Map<string, ClientPluginsType> = new Map();
-    private tls: TSLOptions | null = null;
     private client: TLS.TLSSocket | net.Socket = new net.Socket();
+    private servers: ServerOptions[] = [];
+    private currentServerIndex: number = 0;
 
 
     public event: {
@@ -30,25 +27,11 @@ export class Client {
     }
 
 
-    constructor({ host, port, decoder = DECODER.BUFFER, credentials, tls }: ClientContructorType) {
-        this.host = host;
-        this.port = port;
+    constructor({ decoder = DECODER.BUFFER, servers }: ClientConfig) {
         this.decoder = decoder;
-        this.credentials = credentials ? { ...credentials, language: PLATFORM, ip: ip() || LOCALHOST } : undefined;
-        this.tls = tls || null;
-
-
-        this.createFlexibleServer();
-
-        // this.eventEmitterSocket = new net.Socket();
-        // this.eventEmitterSocket.connect(this.port, this.host, () => {
-        //     console.log(`🔌 Event emitter socket connected to ${this.host}:${this.port}`);
-        // });
-
-        // this.eventEmitterSocket.on("close", (data) => {
-        //     const { event, data: eventData } = JSON.parse(data.toString());
-        //     this.emit(event, eventData);
-        // });
+        servers.forEach((server) => {
+            this.servers.push(server);
+        });
 
         this.event = {
             emit: (event: string, data: any) => this.emit(event, data),
@@ -58,6 +41,13 @@ export class Client {
         }
     }
 
+    private getNextServer(): ServerOptions {
+        const server = this.servers[this.currentServerIndex];
+        this.currentServerIndex = (this.currentServerIndex + 1) % this.servers.length;
+        return server;
+    }
+
+
     public addPlugin(callback: ClientPluginsType[]): void {
         callback.forEach((plugin) => {
             this.plugins.set(shortUUID.generate(), plugin);
@@ -66,25 +56,30 @@ export class Client {
 
     public call(trigger: string, payload: any): Promise<any> {
         return new Promise((resolve, reject) => {
-            if (this.tls?.cert && this.tls?.key && this.tls?.ca && this.tls?.ca.length > 0) {
+            const { tls, port, host, credentials } = this.getNextServer();
+
+            if (tls?.cert && tls?.key && tls?.ca && tls?.ca.length > 0) {
                 const tlsOptions = {
-                    key: Buffer.from(this.tls.key || ''),
-                    cert: Buffer.from(this.tls.cert || ''),
-                    ca: this.tls.ca || []
+                    host,
+                    port,
+                    key: Buffer.from(tls.key || ''),
+                    cert: Buffer.from(tls.cert || ''),
+                    ca: tls.ca || [],
+                    rejectUnauthorized: true
                 };
 
-                const client = TLS.connect(this.port, tlsOptions, () => {
+                const client = TLS.connect(tlsOptions, () => {
                     const message = JSON.stringify({
                         uuid: shortUUID.generate(),
                         trigger,
                         type: ALLOW_MESSAGE.RPC,
                         payload,
-                        credentials: this.credentials
+                        credentials: credentials ? { ...credentials, language: PLATFORM, ip: ip() || LOCALHOST } : undefined
                     });
 
                     client.write(message);
-
                 })
+
 
                 let rawBuffer = Buffer.alloc(0);
                 let compressedLength: number | null = null;
@@ -127,20 +122,19 @@ export class Client {
                     }
                 });
 
-
                 client.on('error', (err) => reject(err));
                 client.on('end', () => this.handleDisconnect(client));
                 client.on('close', () => this.handleDisconnect(client));
 
             } else {
                 const client = new net.Socket();
-                client.connect(this.port, this.host, () => {
+                client.connect(port, host, () => {
                     const message = JSON.stringify({
                         uuid: shortUUID.generate(),
                         trigger,
                         type: ALLOW_MESSAGE.RPC,
                         payload,
-                        credentials: this.credentials
+                        credentials: credentials ? { ...credentials, language: PLATFORM, ip: ip() || LOCALHOST } : undefined
                     });
 
                     client.write(message);
@@ -201,69 +195,11 @@ export class Client {
         client.destroy();
     }
 
-
     safeJSONParse(data: string): any {
         try {
             return JSON.parse(data);
         } catch (error) {
             return data;
-        }
-    }
-
-
-
-    private async incomingData(data: Buffer, resolve: (data: any) => void, reject: (error: any) => void) {
-        let buffer = Buffer.alloc(0);
-        let messageLength: number | null = null;
-
-        buffer = Buffer.concat([buffer, data]);
-
-        try {
-            // We can read the message length
-            if (messageLength === null && buffer.length >= 4) {
-                messageLength = buffer.readUInt32BE(0);
-            }
-
-            // We can read the full message
-            if (messageLength !== null && buffer.length >= 4 + messageLength) {
-                const messageBuffer = buffer.subarray(4, 4 + messageLength); // exact range
-
-                // Trim the buffer in case more messages arrive later
-                buffer = buffer.subarray(4 + messageLength);
-                messageLength = null; // reset for the next message
-
-                if (this.decoder === DECODER.JSON) {
-                    resolve(JSON.parse(messageBuffer.toString("utf8")));
-                } else if (this.decoder === DECODER.BUFFER) {
-                    resolve(messageBuffer); // ✅ only the message body
-                } else {
-                    resolve(messageBuffer.toString(this.decoder));
-                }
-            }
-
-        } catch (error: any) {
-            reject(error.toString());
-        }
-    }
-
-
-    private createFlexibleServer() {
-        if (this.tls?.cert && this.tls?.key && this.tls?.ca && this.tls?.ca.length > 0) {
-            const tlsOptions = {
-                key: Buffer.from(this.tls.key || ''),
-                cert: Buffer.from(this.tls.cert || ''),
-                ca: this.tls.ca || []
-            };
-
-            this.client = TLS.connect(this.port, tlsOptions, () => {
-                console.log("🔐 Client connected using a secure TLS connection.");
-            })
-
-        } else {
-            this.client = new net.Socket();
-            this.client.connect(this.port, this.host, () => {
-                console.log("🌐 Client connected using a TCP connection.");
-            });
         }
     }
 
@@ -273,48 +209,50 @@ export class Client {
             return;
         }
 
-        const socket = new net.Socket();
+        this.servers.forEach(({ port, host }) => {
+            const socket = new net.Socket();
 
-        socket.connect(this.port, this.host, () => {
-            const message = JSON.stringify({
-                uuid: shortUUID.generate(),
-                type: ALLOW_MESSAGE.SUBSCRIBE,
-                trigger: event,
-                credentials: this.credentials,
+            socket.connect(port, host, () => {
+                const message = JSON.stringify({
+                    uuid: shortUUID.generate(),
+                    type: ALLOW_MESSAGE.SUBSCRIBE,
+                    trigger: event,
+                    credentials: this.credentials,
+                });
+
+                socket.write(message);
             });
 
-            socket.write(message);
-        });
+            socket.on('data', (data) => {
+                const parsed: MessageDataType = JSON.parse(data.toString());
+                try {
+                    this.plugins.forEach((plugin) => {
+                        if (plugin.requestReceived)
+                            plugin.requestReceived(parsed, this)
+                    });
 
-        socket.on('data', (data) => {
-            const parsed: MessageDataType = JSON.parse(data.toString());
-            try {
-                this.plugins.forEach((plugin) => {
-                    if (plugin.requestReceived)
-                        plugin.requestReceived(parsed, this)
-                });
+                    if (parsed.type === ALLOW_MESSAGE.EVENT && parsed.trigger === event)
+                        callback(parsed.payload);
 
-                if (parsed.type === ALLOW_MESSAGE.EVENT && parsed.trigger === event)
-                    callback(parsed.payload);
+                } catch (err) {
+                    this.plugins.forEach((plugin) => {
+                        if (plugin.requestFailed) {
+                            plugin.requestFailed({ error: { message: `❌ Failed to parse event '${event}' data:` } }, parsed)
+                        }
+                    });
 
-            } catch (err) {
-                this.plugins.forEach((plugin) => {
-                    if (plugin.requestFailed) {
-                        plugin.requestFailed({ error: { message: `❌ Failed to parse event '${event}' data:` } }, parsed)
-                    }
-                });
+                    console.error(`❌ Failed to parse event '${event}' data:`, err);
+                }
+            });
 
-                console.error(`❌ Failed to parse event '${event}' data:`, err);
-            }
-        });
+            socket.on('error', (err) => {
+                console.error(`❌ Error in subscription to '${event}':`, err);
+            });
 
-        socket.on('error', (err) => {
-            console.error(`❌ Error in subscription to '${event}':`, err);
-        });
-
-        socket.on('end', () => {
-            // process.kill(0)           
-        });
+            socket.on('end', () => {
+                // process.kill(0)           
+            });
+        })
     }
 
     private registerSubscriptionDefinition(subscriptionDefinition: SubscriptionDefinitionType): void {

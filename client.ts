@@ -8,21 +8,33 @@ const tls = {
     ca: [fs.readFileSync(`./tls/cert.pem`).toString()]
 }
 
-
 const client = new Client({
-    host: 'localhost',
-    port: 1000,
     decoder: ENCODER.JSON,
-    tls,
-    credentials: {
-        secretKey: '5d8c957c754136994cf790daa351f5df28c7fac6d89f4f59f46c259177e1c6be'
-    },
+    servers: [
+        {
+            host: 'localhost',
+            port: 1000,
+            tls,
+            credentials: {
+                secretKey: '5d8c957c754136994cf790daa351f5df28c7fac6d89f4f59f46c259177e1c6be'
+            }
+        },
+        {
+            host: 'localhost',
+            port: 1001,
+            tls,
+            credentials: {
+                secretKey: '5d8c957c754136994cf790daa351f5df28c7fac6d89f4f59f46c259177e1c6be'
+            }
+        }
+    ]
 })
+
 
 
 const httpServer = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
     try {
-        const users = await client.call('getUsers', { name: 'John Doe' });        
+        const users = await client.call('getUsers', { name: 'John Doe' });
 
         res.setHeader('Content-Type', 'application/json');
         res.writeHead(200);

@@ -33,3 +33,17 @@ export type ClientFromServerType = {
     roles?: string[];
     ip: string;
 }
+
+
+export type ServerOptions = {
+    host: string;
+    port: number;
+    tls?: TSLOptions;
+    credentials?: {
+        secretKey: string;
+    };
+};
+export type ClientConfig = {
+    servers: ServerOptions[];
+    decoder?: any;
+};
