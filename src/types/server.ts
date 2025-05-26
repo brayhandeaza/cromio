@@ -35,9 +35,9 @@ export type SubscriptionType = {
 }
 
 export type TSLOptions = {
-    key?: string;
-    cert?: string;
-    ca?: string[]
+    key?: Buffer<ArrayBufferLike>;
+    cert?: Buffer<ArrayBufferLike>;
+    ca?: Buffer<ArrayBufferLike>[]
 }
 
 export type ServerContructorType = {
@@ -67,7 +67,7 @@ export type OnRequestDataType = {
 
 export type TriggerCallback = (payload: any) => any;
 export type SubscriptionCallback = (payload: any) => any;
-export type TriggerHandler = (payload: any, client: any) => Promise<any>;
+export type TriggerHandler = (payload: any, credentials: ClientFromServerType, reply: (data: any) => void) => Promise<any>;
 export type TriggerDefinitionType = Map<string, TriggerCallback>
 export type SubscriptionDefinitionType = Map<string, SubscriptionCallback>
 

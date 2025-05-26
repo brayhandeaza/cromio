@@ -3,9 +3,9 @@ import fs from "fs";
 import users from "./data.json"
 
 const tls = {
-    key: fs.readFileSync(`./tls/key.pem`).toString(),
-    cert: fs.readFileSync(`./tls/cert.pem`).toString(),
-    ca: [fs.readFileSync(`./client-tls/cert.pem`).toString()]
+    key: fs.readFileSync(`./tls/key.pem`),
+    cert: fs.readFileSync(`./tls/cert.pem`),
+    ca: [fs.readFileSync(`./client-tls/cert.pem`)]
 }
 
 const port = Number(process.argv[2])
@@ -15,12 +15,12 @@ const server: Server = new Server({
     port
 });
 
-const userTriggers = triggerDefinition()
 
 server.addTrigger("getUsers", async (ctx: MiddlewareContextType) => {
-    ctx.response(users)
+    console.log("getUsers")   
+    
+    ctx.reply(users)
 })
 
 
-server.registerTriggerDefinition(userTriggers)
 server.start();

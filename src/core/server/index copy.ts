@@ -8,9 +8,8 @@ import { ip } from 'address';
 import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDataType, SubscriptionCallback, SubscriptionDefinitionType, TriggerDefinitionType, MiddlewareContextType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension, TSLOptions } from '../../types';
 import { ALLOW_MESSAGE } from '../../constants';
 import { Extensions } from './Extensions';
-import { calculateConcurrency, safeStringify } from '../../helpers';
-import Fastify from 'fastify';
-import { ClientMessageDataType } from '../../auth/server';
+import { calculateConcurrency, gzip, safeStringify } from '../../helpers';
+
 
 export class Server<TInjected extends object = {}> {
     private extensions!: Extensions<TInjected>;
@@ -51,51 +50,44 @@ export class Server<TInjected extends object = {}> {
 
 
     public start() {
-        const isSecured = !!this.tls?.key && !!this.tls?.cert
-        const securedOptions = {
-            http2: true,
-            https: isSecured ? {
-                allowHTTP1: true,
-                cert: this.tls?.cert || '',
-                key: this.tls?.key || '',
-            } : { allowHTTP1: true },
-        }
+        if (this.tls?.key && this.tls?.cert) {
+            const tlsOptions = {
+                key: Buffer.from(this.tls.key || ''),
+                cert: Buffer.from(this.tls.cert || ''),
+            };
+            const server = TLS.createServer(tlsOptions, (socket) => {
+                this.client = socket;
 
-        const fastify = Fastify();
-
-        // ⛔ Global hook to reject all non-POST requests
-        fastify.get('*', (_, reply) => reply.code(405).send({ error: "Only POST requests are allowed." }))
-        fastify.delete('*', (_, reply) => reply.code(405).send({ error: "Only POST requests are allowed." }))
-        fastify.put('*', (_, reply) => reply.code(405).send({ error: "Only POST requests are allowed." }))
-        fastify.patch('*', (_, reply) => reply.code(405).send({ error: "Only POST requests are allowed." }))
-
-        fastify.post('/', async (request, reply) => {
-            const { trigger, payload, credentials } = await ClientMessageDataType.parseAsync(request.body);
-
-            // const auth = this.verifyClient(credentials, trigger);
-            // if (!auth.passed) return this.rejectRequest(socket, auth.message);
-
-
-            const handler = this.triggers.get(trigger);
-            if (!handler) {
-                const msg = `Trigger '${trigger}' not found on server side.`;
-                throw new Error(msg);
-            }
-
-            await handler(payload, credentials, (data: any, code: number = 200) => {
-                reply.send(data).status(code);
+                socket.on('data', async (data) => this.handleIncomingData(socket, data));
+                socket.on('error', (err) => this.break(err));
+                socket.on('end', () => this.handleDisconnect(socket));
             });
-        });
 
+            server.listen(this.port, () => {
+                this.extensions.triggerHook('onStart', {
+                    server: this
+                });
 
-        fastify.listen({ port: this.port }, (err, address) => {
-            if (err) throw err;
+                console.log(`🔐 TLS Server listening locally on: tls=true host=localhost port=${this.port}`);
+                console.log(`🔐 TLS Server listening on: tls=true host=${ip()} port=${this.port}\n`);
+            });
+        } else {
+            const server = net.createServer(socket => {
+                this.client = socket;
+                socket.on('data', async (data) => this.handleIncomingData(socket, data));
+                socket.on('error', (err) => this.break(err));
+                socket.on('end', () => this.handleDisconnect(socket));
+            });
 
-            if (this.tls?.key && this.tls?.cert)
-                console.log(`🔐 Server Listening On: tls=true host=${ip()} port=${this.port}\n`);
-            else
-                console.log(`🚀 Server Listening On: tls=false host=${ip()} port=${this.port}\n`);
-        });
+            server.listen(this.port, () => {
+                this.extensions.triggerHook('onStart', {
+                    server: this
+                });
+
+                console.log(`🌐 TPC Server listening locally on: tls='${this.tls}' host=localhost port=${this.port}`);
+                console.log(`🌐 TPC Server listening on: tls='${this.tls}' host=${ip()} port=${this.port}\n`);
+            });
+        }
     }
 
     public addExtension<TNew extends {}>(...exts: ServerExtension<TNew>[]): asserts this is Server<TInjected & TNew> & TNew {
@@ -122,11 +114,11 @@ export class Server<TInjected extends object = {}> {
         if (this.logs) console.log(`📥 Registered server-side event handler for '${event}'`);
     }
 
-    // public async trigger(name: string, payload: any, credentials: ClientFromServerType) {
-    //     const handler = this.triggers.get(name);
-    //     if (!handler) throw new Error(`Trigger '${name}' is not registered.`);
-    //     return await handler(payload, credentials);
-    // }
+    public async trigger(name: string, payload: any, credentials: ClientFromServerType) {
+        const handler = this.triggers.get(name);
+        if (!handler) throw new Error(`Trigger '${name}' is not registered.`);
+        return await handler(payload, credentials);
+    }
 
     public registerTriggerDefinition({ triggers }: { triggers: TriggerDefinitionType }) {
         triggers.forEach((callback, name) => {
@@ -140,13 +132,20 @@ export class Server<TInjected extends object = {}> {
     }
 
     public addTrigger(name: string, ...callbacks: MiddlewareCallback[]) {
-        this.triggers.set(name, async (payload, credentials, reply) => {
+        this.triggers.set(name, async (payload, credentials) => {
             const context: MiddlewareContextType = {
                 server: this,
                 trigger: name,
                 credentials,
                 body: payload,
-                reply: (data: any) => reply(data)
+                socket: credentials.socket,
+                response: (data: any) => {
+                    if (credentials.socket) {
+                        this.safeWrite(credentials.socket, data);
+                    } else {
+                        console.warn('⚠️ Cannot respond: socket is undefined.');
+                    }
+                }
             };
 
             await this.runMiddlewareChain([...this.globalMiddlewares, ...callbacks], context);
@@ -180,7 +179,7 @@ export class Server<TInjected extends object = {}> {
             try {
                 await callback({
                     ...context,
-                    reply: (msg: any) => {
+                    response: (msg: any) => {
                         responded = true;
                         responsePayload = msg;
                     },
@@ -195,7 +194,7 @@ export class Server<TInjected extends object = {}> {
                     message: error.message
                 });
 
-                context.reply({ error: error.message }, 500);
+                context.response({ error: error.message });
                 return;
             }
 
@@ -205,7 +204,7 @@ export class Server<TInjected extends object = {}> {
                     language: context.credentials.language,
                     ip: context.credentials.ip,
                 });
-                context.reply(responsePayload);
+                context.response(responsePayload);
                 return;
             }
         }
@@ -217,7 +216,7 @@ export class Server<TInjected extends object = {}> {
             const { trigger, payload, uuid, type, credentials } = request;
 
             console.log("📥 Received:", request);
-
+            
             this.extensions.triggerHook("onRequest", {
                 server: this,
                 request: {
@@ -235,7 +234,7 @@ export class Server<TInjected extends object = {}> {
             if (!auth.passed) return this.rejectRequest(socket, auth.message);
 
             switch (type) {
-                // case ALLOW_MESSAGE.RPC: return this.handleRPC(trigger, payload, socket, credentials);
+                case ALLOW_MESSAGE.RPC: return this.handleRPC(trigger, payload, socket, credentials);
                 case ALLOW_MESSAGE.EVENT: return this.handleEVENT(trigger, payload, socket, uuid, credentials);
                 case ALLOW_MESSAGE.SUBSCRIBE: return this.handleSUBSCRIBE(trigger, socket, uuid);
                 default: return this.safeWrite(socket, { error: 'Invalid message type.' });
@@ -276,22 +275,24 @@ export class Server<TInjected extends object = {}> {
         this.safeWrite(socket, { subscribed: trigger });
     }
 
-    // private async handleRPC(trigger: string, payload: any, socket: TLS.TLSSocket | net.Socket, credentials: ClientFromServerType) {
-    //     try {
-    //         const handler = this.triggers.get(trigger);
-    //         if (!handler) {
-    //             const msg = `Schema '${trigger}' not found on server side.`;
-    //             throw new Error(msg);
-    //         }
+    private async handleRPC(trigger: string, payload: any, socket: TLS.TLSSocket | net.Socket, credentials: ClientFromServerType) {
+        try {
+            const handler = this.triggers.get(trigger);
+            if (!handler) {
+                const msg = `Schema '${trigger}' not found on server side.`;
+                throw new Error(msg);
+            }
 
-    //         const result = await handler(payload, credentials);
-    //         return result
+            const result = await handler(payload, { ...credentials, socket });
+            if (!result) {
+                this.safeWrite(socket, result);
+            }
 
-    //     } catch (error: any) {
-    //         this.safeWrite(socket, { error: error.toString() });
-    //         console.log({ error });
-    //     }
-    // }
+        } catch (error: any) {
+            this.safeWrite(socket, { error: error.toString() });
+            console.log({ error });
+        }
+    }
 
     private emitEvent(event: string, data: any) {
         this.eventEmitter.emit(event, data);

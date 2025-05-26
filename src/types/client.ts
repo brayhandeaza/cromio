@@ -1,6 +1,7 @@
 import { EncodingType } from '.';
 import { Client } from '../core/client';
 import { MessageDataType, RequestErrorType, TSLOptions } from './server';
+import http2 from 'http2';
 
 export interface ClientType {
     secretKey: string;
@@ -21,7 +22,7 @@ export type ClientContructorType = {
     tls?: TSLOptions
     port: number;
     host: string;
-    decoder?:  EncodingType;
+    decoder?: EncodingType;
     credentials?: ClientType;
 }
 
@@ -36,13 +37,17 @@ export type ClientFromServerType = {
 
 
 export type ServerOptions = {
-    host: string;
-    port: number;
+    url: string;
     tls?: TSLOptions;
     credentials?: {
         secretKey: string;
     };
 };
+
+export type ServersType = & ServerOptions & {
+    // server: http2.ClientHttp2Session
+};
+
 export type ClientConfig = {
     servers: ServerOptions[];
     decoder?: any;

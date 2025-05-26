@@ -7,8 +7,8 @@ export type MiddlewareContextType<TInjected extends object = any> = {
     trigger: string;
     credentials: CredentialsType;
     body: any;
-    socket: net.Socket;
-    response: (data: any) => void
+    // socket: net.Socket;
+    reply: (data: any, code?: number) => void
 }
 
 export type MiddlewareCallback = (payload: MiddlewareContextType) => any;
