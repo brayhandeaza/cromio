@@ -39,7 +39,8 @@ if (cluster.isMaster) {
             const users = await client.send('getUsers', { name: 'John Doe' });
 
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ users }));
+            res.statusCode = users.error ? 500 : 200
+            res.end(JSON.stringify(users));
 
         } catch (error) {
             console.error(error);

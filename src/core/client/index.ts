@@ -4,6 +4,9 @@ import shortUUID from 'short-uuid';
 import zlib from 'zlib';
 import { ClientPluginsType, ClientConfig, EncodingType, ServersType, ServerOptions, } from '../../types';
 import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM, } from '../../constants';
+import https from 'https';
+import { json } from 'stream/consumers';
+
 
 export class Client {
     private decoder: EncodingType;
@@ -17,20 +20,7 @@ export class Client {
         this.decoder = decoder;
 
         for (const server of servers) {
-            // const gotClient = got.extend({
-            //     prefixUrl: server.url,
-            //     http2: true,
-            //     timeout: { request: this.TIMEOUT },
-            //     retry: { limit: 0 },
-            //     https: { rejectUnauthorized: false },
-            //     headers: {
-            //         'content-type': 'application/json',
-            //         'secretKey': server.credentials?.secretKey ?? '',
-            //     },
-            // });
-
             this.servers.push(server);
-            // this.gotClients.push(gotClient);
         }
     }
 
@@ -51,10 +41,10 @@ export class Client {
 
     public async send(trigger: string, payload: any): Promise<any> {
         try {
-            const {  server } = this.getNextClient();
+            const { server } = this.getNextClient();
             const credentials = server.credentials;
 
-            const message = {
+            const data = {
                 uuid: shortUUID.generate(),
                 trigger,
                 type: ALLOW_MESSAGE.RPC,
@@ -68,19 +58,32 @@ export class Client {
                     : undefined,
             };
 
-
-            const res = await fetch(server.url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'secretKey': server.credentials?.secretKey ?? '',
-                },
-                body: JSON.stringify(message),
+            const agent = new https.Agent({
+                rejectUnauthorized: false,
+                key: server.tls?.key,
+                cert: server.tls?.cert,
+                ca: server.tls?.ca || [],
             });
 
-            const data = await res.json();
-            return data;
-            
+            const gotClient = got.extend({
+                http2: true,
+                agent: {
+                    https: agent
+                },
+                timeout: {
+                    request: this.TIMEOUT
+                }
+            })
+
+            const message = zlib.gzipSync(JSON.stringify(data))
+            const { body } = await gotClient.post(server.url, {
+                json: { message: message.toString('base64') },
+                responseType: 'buffer',
+            });
+
+            const response = zlib.gunzipSync(body).toString('utf8');
+            return JSON.parse(response);
+
         } catch (err: any) {
             throw new Error(`Client request failed: ${err.message}`);
         }

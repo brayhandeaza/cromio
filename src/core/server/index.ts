@@ -9,8 +9,9 @@ import { ClientFromServerType, TriggerCallback, ServerContructorType, MessageDat
 import { ALLOW_MESSAGE } from '../../constants';
 import { Extensions } from './Extensions';
 import { calculateConcurrency, safeStringify } from '../../helpers';
-import Fastify from 'fastify';
+import Fastify, { FastifyRequest } from 'fastify';
 import { ClientMessageDataType } from '../../auth/server';
+import { z } from 'zod';
 
 export class Server<TInjected extends object = {}> {
     private extensions!: Extensions<TInjected>;
@@ -69,22 +70,41 @@ export class Server<TInjected extends object = {}> {
         fastify.put('*', (_, reply) => reply.code(405).send({ error: "Only POST requests are allowed." }))
         fastify.patch('*', (_, reply) => reply.code(405).send({ error: "Only POST requests are allowed." }))
 
-        fastify.post('/', async (request, reply) => {
-            const { trigger, payload, credentials } = await ClientMessageDataType.parseAsync(request.body);
+        fastify.post('/', async (request: FastifyRequest, reply) => {
+            try {
+                const bodySchema = z.object({ message: z.string() });
+                const { message } = await bodySchema.parseAsync(request.body);
 
-            // const auth = this.verifyClient(credentials, trigger);
-            // if (!auth.passed) return this.rejectRequest(socket, auth.message);
+                const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
+                const { trigger, payload, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
+
+                const auth = this.verifyClient(credentials);
+                if (!auth.passed) return reply.send({
+                    error: {
+                        message: auth.message
+                    }
+                }).status(500);
 
 
-            const handler = this.triggers.get(trigger);
-            if (!handler) {
-                const msg = `Trigger '${trigger}' not found on server side.`;
-                throw new Error(msg);
+                const handler = this.triggers.get(trigger);
+                if (!handler) {
+                    const msg = `Trigger '${trigger}' not found on server side.`;
+                    throw new Error(msg);
+                }
+
+                await handler(payload, credentials, (data: any, code: number = 200) => {
+                    const message = zlib.gzipSync(JSON.stringify(data)) 
+                    reply.send(message).status(code);
+                });
+
+            } catch (error: any) {
+                const { message } = JSON.parse(error.message)[0]
+                reply.send({
+                    error: {
+                        message
+                    }
+                }).status(500);
             }
-
-            await handler(payload, credentials, (data: any, code: number = 200) => {
-                reply.send(data).status(code);
-            });
         });
 
 
@@ -121,12 +141,6 @@ export class Server<TInjected extends object = {}> {
         this.events.set(event, callback);
         if (this.logs) console.log(`📥 Registered server-side event handler for '${event}'`);
     }
-
-    // public async trigger(name: string, payload: any, credentials: ClientFromServerType) {
-    //     const handler = this.triggers.get(name);
-    //     if (!handler) throw new Error(`Trigger '${name}' is not registered.`);
-    //     return await handler(payload, credentials);
-    // }
 
     public registerTriggerDefinition({ triggers }: { triggers: TriggerDefinitionType }) {
         triggers.forEach((callback, name) => {
@@ -231,7 +245,7 @@ export class Server<TInjected extends object = {}> {
                 }
             });
 
-            const auth = this.verifyClient(credentials, trigger);
+            const auth = this.verifyClient(credentials);
             if (!auth.passed) return this.rejectRequest(socket, auth.message);
 
             switch (type) {
@@ -275,23 +289,6 @@ export class Server<TInjected extends object = {}> {
         callback!(payload);
         this.safeWrite(socket, { subscribed: trigger });
     }
-
-    // private async handleRPC(trigger: string, payload: any, socket: TLS.TLSSocket | net.Socket, credentials: ClientFromServerType) {
-    //     try {
-    //         const handler = this.triggers.get(trigger);
-    //         if (!handler) {
-    //             const msg = `Schema '${trigger}' not found on server side.`;
-    //             throw new Error(msg);
-    //         }
-
-    //         const result = await handler(payload, credentials);
-    //         return result
-
-    //     } catch (error: any) {
-    //         this.safeWrite(socket, { error: error.toString() });
-    //         console.log({ error });
-    //     }
-    // }
 
     private emitEvent(event: string, data: any) {
         this.eventEmitter.emit(event, data);
@@ -358,38 +355,36 @@ export class Server<TInjected extends object = {}> {
         });
     }
 
-    private verifyClient(credentials: ClientFromServerType, schema: string): { passed: boolean, message: string } {
-        if (!credentials.secretKey) {
-            return {
-                passed: false,
-                message: `🚫 Missing secretKey for schema=${schema}, language=${credentials.language}, ip=${credentials.ip}`,
-            };
-        }
-
+    private verifyClient(credentials: ClientFromServerType): { passed: boolean, message: string } {
         const client = this.clients.get(credentials.secretKey);
-        if (!client && this.clients.size) {
-            return {
-                passed: false,
-                message: `🚫 Unauthorized client for schema=${schema}, ip=${credentials.ip}`,
-            };
-        }
-
-        if (client) {
-            if (client.language !== credentials.language) {
+        switch (true) {
+            case !credentials.secretKey:
                 return {
                     passed: false,
-                    message: `🚫 Invalid language. Expected '${client.language}', got '${credentials.language}'`,
+                    message: `🚫 Authentication Failed: Client at ip=${credentials.ip} did not provide a valid secretKey`,
                 };
-            }
-            if (client.ip && client.ip !== credentials.ip) {
+            case !client:
                 return {
                     passed: false,
-                    message: `🚫 Invalid IP. Expected '${client.ip}', got '${credentials.ip}'`,
+                    message: `🚫 Authentication Failed: Client at ip=${credentials.ip} provided an invalid secretKey`,
                 };
-            }
-        }
+            case client?.language !== credentials.language:
+                return {
+                    passed: false,
+                    message: `🚫 Invalid Language: '${credentials.language}' not allowed for ip=${credentials.ip} — expected '${client.language}'`,
+                };
+            case client?.ip !== credentials.ip:
+                return {
+                    passed: false,
+                    message: `🚫 Invalid IP Address: Expected '${client.ip}', but received '${credentials.ip}'`,
+                };
 
-        return { passed: true, message: "" };
+            default:
+                return {
+                    passed: true,
+                    message: ""
+                }
+        }
     }
 
     private verifyEvent(hasCallback: boolean, credentials: ClientFromServerType, event: string, clientId: string): { passed: boolean, message: string } {
