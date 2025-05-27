@@ -1,4 +1,4 @@
-import { MiddlewareContextType, Server, triggerDefinition } from "./src"
+import { MiddlewareType, Server, ServerExtension, triggerDefinition } from "./src"
 import fs from "fs";
 import users from "./data.json"
 
@@ -22,12 +22,33 @@ const server: Server = new Server({
     ]
 });
 
+const timestampExt: ServerExtension<{ getTime: () => string, age: number }> = {
+    injectProperties: (server) => ({
+        age: 30,
+        getTime() {
+            return new Date().toISOString();
+        }
+    }),
+    onStart: ({ server }) => {
+        console.log('Start Time:', server.getTime());
+    },
+    onStop: ({ server }) => {
+        console.log('Stop Time:', server.getTime());
+    },
+    onRequest: (ctx) => {
+        console.log('Request Time:', ctx.server);
+    }
+};
 
-server.addTrigger("getUsers", async (ctx: MiddlewareContextType) => {
-    console.log("getUsers")   
-    
+server.addExtension(timestampExt);
+
+server.addTrigger("getUsers", async (ctx: MiddlewareType<{ age: number }>) => {
+    ctx.server
     ctx.reply(users)
 })
 
 
-server.start();
+server.start((url) => {
+    console.log(`🚀 Server Listening On: address=${url}`)
+})
+
