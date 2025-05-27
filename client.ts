@@ -1,18 +1,8 @@
 import { Client, ENCODER } from "./src"
-import http, { IncomingMessage, ServerResponse } from "http"
-import fs from "fs"
-import http2 from 'http2';
-import https from 'https';
+import http from "http"
 import cluster from "cluster";
 import os from "os";
 
-
-
-const tls = {
-    key: fs.readFileSync(`./client-tls/key.pem`).toString(),
-    cert: fs.readFileSync(`./client-tls/cert.pem`).toString(),
-    ca: [fs.readFileSync(`./tls/cert.pem`).toString()]
-}
 
 const client = new Client({
     decoder: ENCODER.JSON,
@@ -25,8 +15,6 @@ const client = new Client({
         }
     ]
 })
-
-
 
 
 if (cluster.isMaster) {

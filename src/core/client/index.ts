@@ -5,11 +5,9 @@ import zlib from 'zlib';
 import { ClientPluginsType, ClientConfig, EncodingType, ServersType, ServerOptions, } from '../../types';
 import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM, } from '../../constants';
 import https from 'https';
-import { json } from 'stream/consumers';
 
 
 export class Client {
-    private decoder: EncodingType;
     private plugins: Map<string, ClientPluginsType> = new Map();
     private servers: ServersType[] = [];
     private gotClients: Got[] = [];
@@ -17,11 +15,9 @@ export class Client {
     private readonly TIMEOUT = 5000;
 
     constructor({ decoder = DECODER.BUFFER, servers }: ClientConfig) {
-        this.decoder = decoder;
-
-        for (const server of servers) {
+        for (const server of servers) 
             this.servers.push(server);
-        }
+        
     }
 
     private getNextClient(): { client: Got; server: ServersType } {
