@@ -24,7 +24,7 @@ export class Server<TInjected extends object = {}> {
             console.log(`❌ Logs(Error): trigger="${trigger}" language="${language}" ip="${ip}" message="${message}"`);
         }
     }
-  
+
     constructor({ port = 1000, clients = [], logs = true, tls }: ServerContructorType) {
         this.port = port;
         this.logs = logs;
@@ -53,31 +53,37 @@ export class Server<TInjected extends object = {}> {
                 const { trigger, payload, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
 
                 const auth = this.verifyClient(credentials);
-                if (!auth.passed) return reply.send({
+                if (!auth.passed) return reply.send(zlib.gzipSync(JSON.stringify({
                     error: {
                         message: auth.message
                     }
-                }).status(500);
+                }))).status(500);
 
+                console.log("Request received from::", credentials.ip);
 
                 const handler = this.triggers.get(trigger);
                 if (!handler) {
-                    const msg = `Trigger '${trigger}' not found on server side.`;
-                    throw new Error(msg);
+                    const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+                    reply.send(zlib.gzipSync(JSON.stringify({
+                        error: {
+                            message
+                        }
+                    }))).status(500);
+                    return;
                 }
 
                 await handler(payload, credentials, (data: any, code: number = 200) => {
-                    const message = zlib.gzipSync(JSON.stringify(data)) 
+                    const message = zlib.gzipSync(JSON.stringify(data))
                     reply.send(message).status(code);
                 });
 
             } catch (error: any) {
                 const { message } = JSON.parse(error.message)[0]
-                reply.send({
+                reply.send(zlib.gzipSync(JSON.stringify({
                     error: {
                         message
                     }
-                }).status(500);
+                }))).status(500);
             }
         });
 
@@ -128,10 +134,6 @@ export class Server<TInjected extends object = {}> {
             await this.runMiddlewareChain([...this.globalMiddlewares, ...callbacks], context);
         });
     }
-
-
-    // ###### PRIVATE METHODS ######
-    // #############################
 
     private break(err: any) {
         this.extensions.triggerHook("onError", {

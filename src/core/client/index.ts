@@ -1,11 +1,13 @@
-import got, { Got } from 'got';
-import { ip } from 'address';
+import https from 'https';
 import shortUUID from 'short-uuid';
 import zlib from 'zlib';
-import { ClientPluginsType, ClientConfig, EncodingType, ServersType, ServerOptions, } from '../../types';
+import got, { Got } from 'got';
+import { ip } from 'address';
+import { ClientPluginsType, ClientConfig, ServersType } from '../../types';
 import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM, } from '../../constants';
-import https from 'https';
-
+import { performance } from "perf_hooks"
+import { time } from 'console';
+import { size } from 'zod/v4';
 
 export class Client {
     private plugins: Map<string, ClientPluginsType> = new Map();
@@ -15,9 +17,9 @@ export class Client {
     private readonly TIMEOUT = 5000;
 
     constructor({ decoder = DECODER.BUFFER, servers }: ClientConfig) {
-        for (const server of servers) 
+        for (const server of servers)
             this.servers.push(server);
-        
+
     }
 
     private getNextClient(): { client: Got; server: ServersType } {
@@ -37,6 +39,7 @@ export class Client {
 
     public async send(trigger: string, payload: any): Promise<any> {
         try {
+            const start = performance.now();
             const { server } = this.getNextClient();
             const credentials = server.credentials;
 
@@ -78,15 +81,19 @@ export class Client {
             });
 
             const response = zlib.gunzipSync(body).toString('utf8');
-            return JSON.parse(response);
+            const end = performance.now();
+            const bytes = body.length;
+
+            return {
+                performance: {
+                    size: bytes,
+                    time: +Number(end - start).toFixed(0),
+                },
+                data: JSON.parse(response),
+            };
 
         } catch (err: any) {
             throw new Error(`Client request failed: ${err.message}`);
         }
-    }
-
-    public destroy(): void {
-        // No-op for got; connections are managed internally.
-        // If persistent agents are used, you can manually close them here.
     }
 }

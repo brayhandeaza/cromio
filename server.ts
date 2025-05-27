@@ -34,9 +34,11 @@ const timestampExt: ServerExtension<{ getTime: () => string, age: number }> = {
 
 server.addExtension(timestampExt);
 
+
+
+
 server.addTrigger("getUsers", async (ctx: MiddlewareType<{ age: number }>) => {
-    ctx.server
-    ctx.reply(users)
+    return users // not good now 
 })
 
 
