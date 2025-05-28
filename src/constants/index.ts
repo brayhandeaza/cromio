@@ -29,5 +29,6 @@ export enum ALLOW_MESSAGE {
 export enum LOAD_BALANCER {
     LEAST_CONNECTION = "leastConnection",
     BEST_BIASED = "bestBiased",
-    LEAST_LATENCY = "leastLatency"
+    LEAST_LATENCY = "leastLatency",
+    EPSILON_GREEDY = "epsilonGreedy"
 }

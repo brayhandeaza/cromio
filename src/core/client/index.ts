@@ -25,6 +25,16 @@ export class Client {
         })
     }
 
+    private getEpsilonGreedyClient(epsilon = 0.1): { server: ServersType; index: number } {
+        if (Math.random() < epsilon) {
+            const index = Math.floor(Math.random() * this.servers.length);
+            return { server: this.servers[index], index };
+        } else {
+            return this.getBestBiasedClient(); // Or getLeastLatencyClient
+        }
+    }
+
+
     private getLeastConnectionClient(): { server: ServersType; index: number } {
         let min = Infinity;
         let selectedIndex = 0;
@@ -87,15 +97,15 @@ export class Client {
 
     private getNextClient(): { server: ServersType; index: number } {
         switch (this.loadBalancerStrategy) {
-            case LOAD_BALANCER.BEST_BIASED:            
+            case LOAD_BALANCER.BEST_BIASED:
                 return this.getBestBiasedClient()
 
             case LOAD_BALANCER.LEAST_LATENCY:
                 return this.getLeastLatencyClient()
-               
+
             default:
                 return this.getLeastConnectionClient();
-        }      
+        }
     }
 
     public addPlugin(callbacks: ClientPluginsType[]): void {
