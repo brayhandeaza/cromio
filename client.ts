@@ -1,11 +1,11 @@
-import { Client, ENCODER } from "./src"
+import { Client, LOAD_BALANCER,  } from "./src"
 import http from "http"
 import cluster from "cluster";
 import os from "os";
 
 
 const client = new Client({
-    decoder: ENCODER.JSON,
+    loadBalancerStrategy: LOAD_BALANCER.LEAST_CONNECTION,
     servers: [
         {
             url: 'http://localhost:2001',
@@ -30,7 +30,6 @@ if (cluster.isMaster) {
 } else {
     const httpServer = http.createServer(async (req, res) => {
         try {
-
             const users = await client.send('getUsers', { name: 'John Doe' });
 
             res.setHeader('Content-Type', 'application/json');

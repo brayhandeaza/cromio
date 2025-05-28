@@ -1,34 +1,101 @@
-import https from 'https';
 import shortUUID from 'short-uuid';
 import zlib from 'zlib';
-import got, { Got } from 'got';
+import got from 'got';
 import { ip } from 'address';
-import { ClientPluginsType, ClientConfig, ServersType } from '../../types';
-import { ALLOW_MESSAGE, DECODER, LOCALHOST, PLATFORM, } from '../../constants';
+import { ClientPluginsType, ClientConfig, ServersType, ResponseType } from '../../types';
+import { ALLOW_MESSAGE, LOAD_BALANCER, LOCALHOST, PLATFORM, } from '../../constants';
 import { performance } from "perf_hooks"
-import { time } from 'console';
-import { size } from 'zod/v4';
 
 export class Client {
     private plugins: Map<string, ClientPluginsType> = new Map();
     private servers: ServersType[] = [];
-    private gotClients: Got[] = [];
-    private currentServerIndex = 0;
+    private activeRequests: Map<number, number> = new Map();
+    private latencies: Map<number, number[]> = new Map(); // serverIndex => array of latencies
     private readonly TIMEOUT = 5000;
+    private readonly HISTORY_LIMIT = 10;
+    private readonly loadBalancerStrategy: LOAD_BALANCER
 
-    constructor({ decoder = DECODER.BUFFER, servers }: ClientConfig) {
-        for (const server of servers)
+    constructor({ servers, loadBalancerStrategy = LOAD_BALANCER.BEST_BIASED }: ClientConfig) {
+        this.loadBalancerStrategy = loadBalancerStrategy
+
+        servers.forEach((server, index) => {
             this.servers.push(server);
-
+            this.latencies.set(index, []);
+            this.activeRequests.set(index, 0);
+        })
     }
 
-    private getNextClient(): { client: Got; server: ServersType } {
-        const index = this.currentServerIndex;
-        this.currentServerIndex = (this.currentServerIndex + 1) % this.servers.length;
+    private getLeastConnectionClient(): { server: ServersType; index: number } {
+        let min = Infinity;
+        let selectedIndex = 0;
+
+        for (const [index, count] of this.activeRequests.entries()) {
+            if (count < min) {
+                min = count;
+                selectedIndex = index;
+            }
+        }
+
         return {
-            client: this.gotClients[index],
-            server: this.servers[index],
+            server: this.servers[selectedIndex],
+            index: selectedIndex,
         };
+    }
+
+    private getBestBiasedClient(): { server: ServersType; index: number } {
+        const entries = [...this.latencies.entries()].map(([index, latencies]) => {
+            const avg = latencies.length
+                ? latencies.reduce((a, b) => a + b, 0) / latencies.length
+                : Infinity; // Prefer untested
+            return { index, avg };
+        });
+
+        entries.sort((a, b) => a.avg - b.avg);
+
+        const candidates = entries.slice(0, Math.min(2, entries.length)); // Top 2
+        const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+
+        const index = chosen.index;
+        return {
+            server: this.servers[index],
+            index,
+        };
+    }
+
+    private getLeastLatencyClient(): { server: ServersType; index: number } {
+        let minAvgLatency = Infinity;
+        let selectedIndex = 0;
+
+        for (const [index, latencies] of this.latencies.entries()) {
+            if (latencies.length === 0) {
+                selectedIndex = index;
+                break; // Prioritize untested server
+            }
+            const avg = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+            if (avg < minAvgLatency) {
+                minAvgLatency = avg;
+                selectedIndex = index;
+            }
+        }
+
+        return {
+            server: this.servers[selectedIndex],
+            index: selectedIndex,
+        };
+    }
+
+
+    private getNextClient(): { server: ServersType; index: number } {
+        switch (this.loadBalancerStrategy) {
+            case LOAD_BALANCER.BEST_BIASED:            
+                return this.getBestBiasedClient()
+
+            case LOAD_BALANCER.LEAST_LATENCY:
+                return this.getLeastLatencyClient()
+               
+            default:
+                return this.getLeastConnectionClient();
+        }      
     }
 
     public addPlugin(callbacks: ClientPluginsType[]): void {
@@ -37,10 +104,10 @@ export class Client {
         });
     }
 
-    public async send(trigger: string, payload: any): Promise<any> {
+    public async send(trigger: string, payload: any): Promise<ResponseType> {
         try {
             const start = performance.now();
-            const { server } = this.getNextClient();
+            const { server, index } = this.getNextClient();
             const credentials = server.credentials;
 
             const data = {
@@ -57,18 +124,8 @@ export class Client {
                     : undefined,
             };
 
-            const agent = new https.Agent({
-                rejectUnauthorized: false,
-                key: server.tls?.key,
-                cert: server.tls?.cert,
-                ca: server.tls?.ca || [],
-            });
 
             const gotClient = got.extend({
-                http2: true,
-                agent: {
-                    https: agent
-                },
                 timeout: {
                     request: this.TIMEOUT
                 }
@@ -82,14 +139,29 @@ export class Client {
 
             const response = zlib.gunzipSync(body).toString('utf8');
             const end = performance.now();
+
+            this.activeRequests.set(index, this.activeRequests.get(index)! + 1);
+
+            // Store latency
+            const latencies = this.latencies.get(index)!;
+            latencies.push(+Number(end - start).toFixed(0));
+            if (latencies.length > this.HISTORY_LIMIT) latencies.shift();
+
             const bytes = body.length;
 
             return {
-                performance: {
-                    size: bytes,
-                    time: +Number(end - start).toFixed(0),
+                info: {
+                    loadBalancerStrategy: this.loadBalancerStrategy,
+                    server: {
+                        url: server.url,
+                        requests: this.activeRequests.get(index)!
+                    },
+                    performance: {
+                        size: bytes,
+                        time: +Number(end - start).toFixed(0),
+                    }
                 },
-                data: JSON.parse(response),
+                ...JSON.parse(response),
             };
 
         } catch (err: any) {

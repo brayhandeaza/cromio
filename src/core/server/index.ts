@@ -59,7 +59,10 @@ export class Server<TInjected extends object = {}> {
                     }
                 }))).status(500);
 
-                console.log("Request received from::", credentials.ip);
+                this.extensions.triggerHook("onRequest", {
+                    server: this,
+                    request,
+                });
 
                 const handler = this.triggers.get(trigger);
                 if (!handler) {
@@ -73,8 +76,11 @@ export class Server<TInjected extends object = {}> {
                 }
 
                 await handler(payload, credentials, (data: any, code: number = 200) => {
-                    const message = zlib.gzipSync(JSON.stringify(data))
-                    reply.send(message).status(code);
+                    // Replace undefined with null or {} to ensure valid JSON
+                    const safeData = data === undefined ? null : { data };
+
+                    const message = zlib.gzipSync(JSON.stringify(safeData));
+                    reply.status(code).send(message);
                 });
 
             } catch (error: any) {
@@ -123,15 +129,26 @@ export class Server<TInjected extends object = {}> {
 
     public addTrigger(name: string, ...callbacks: MiddlewareCallback[]) {
         this.triggers.set(name, async (payload, credentials, reply) => {
+            let responseSent = false;
+
             const context: MiddlewareType = {
                 server: this,
                 trigger: name,
                 credentials,
                 body: payload,
-                reply: (data: any) => reply(data)
+                reply: (data: any) => {
+                    responseSent = true;
+                    return reply(data);
+                }
             };
 
-            await this.runMiddlewareChain([...this.globalMiddlewares, ...callbacks], context);
+            // runMiddlewareChain now returns the return value of the last middleware
+            const result = await this.runMiddlewareChain([...this.globalMiddlewares, ...callbacks], context);
+
+            if (!responseSent) {
+                // If nothing was returned and no reply called, send undefined explicitly
+                reply(result === undefined ? undefined : result);
+            }
         });
     }
 
@@ -150,13 +167,16 @@ export class Server<TInjected extends object = {}> {
         }
     }
 
-    private async runMiddlewareChain(callbacks: MiddlewareCallback[], context: MiddlewareType): Promise<void> {
+    private async runMiddlewareChain(callbacks: MiddlewareCallback[], context: MiddlewareType): Promise<any> {
+        let lastResult: any;
+
         for (const callback of callbacks) {
             let responded = false;
             let responsePayload: any = null;
 
             try {
-                await callback({
+                // Call middleware and await result
+                lastResult = await callback({
                     ...context,
                     reply: (msg: any) => {
                         responded = true;
@@ -174,7 +194,7 @@ export class Server<TInjected extends object = {}> {
                 });
 
                 context.reply({ error: error.message }, 500);
-                return;
+                return; // stop chain on error
             }
 
             if (responded) {
@@ -183,12 +203,15 @@ export class Server<TInjected extends object = {}> {
                     language: context.credentials.language,
                     ip: context.credentials.ip,
                 });
+                // Send response and stop chain early
                 context.reply(responsePayload);
                 return;
             }
         }
-    }
 
+        // If no middleware called reply(), return the last result for addTrigger to handle
+        return lastResult;
+    }
     private verifyClient(credentials: ClientFromServerType): { passed: boolean, message: string } {
         const client = this.clients.get(credentials.secretKey);
         switch (true) {

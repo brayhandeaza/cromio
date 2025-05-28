@@ -1,4 +1,5 @@
 import { EncodingType } from '.';
+import { LOAD_BALANCER } from '../constants';
 import { Client } from '../core/client';
 import { MessageDataType, RequestErrorType, TSLOptions } from './server';
 import http2 from 'http2';
@@ -50,5 +51,5 @@ export type ServersType = & ServerOptions & {
 
 export type ClientConfig = {
     servers: ServerOptions[];
-    decoder?: any;
+    loadBalancerStrategy?: LOAD_BALANCER
 };

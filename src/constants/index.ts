@@ -25,3 +25,9 @@ export enum ALLOW_MESSAGE {
     SUBSCRIBE = "subscribe",
     UNSUBSCRIBE = "unsubscribe"
 }
+
+export enum LOAD_BALANCER {
+    LEAST_CONNECTION = "leastConnection",
+    BEST_BIASED = "bestBiased",
+    LEAST_LATENCY = "leastLatency"
+}
