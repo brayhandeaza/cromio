@@ -6,6 +6,7 @@ import os from "os";
 
 const client = new Client({
     loadBalancerStrategy: LOAD_BALANCER.EPSILON_GREEDY,
+    showRequestInfo: true,
     servers: [
         {
             url: 'http://localhost:2001',

@@ -52,4 +52,5 @@ export type ServersType = & ServerOptions & {
 export type ClientConfig = {
     servers: ServerOptions[];
     loadBalancerStrategy?: LOAD_BALANCER
+    showRequestInfo?: boolean
 };

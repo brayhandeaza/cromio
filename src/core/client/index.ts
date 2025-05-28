@@ -14,9 +14,11 @@ export class Client {
     private readonly TIMEOUT = 5000;
     private readonly HISTORY_LIMIT = 10;
     private readonly loadBalancerStrategy: LOAD_BALANCER
+    public showRequestInfo: boolean
 
-    constructor({ servers, loadBalancerStrategy = LOAD_BALANCER.BEST_BIASED }: ClientConfig) {
+    constructor({ servers, showRequestInfo = false, loadBalancerStrategy = LOAD_BALANCER.BEST_BIASED }: ClientConfig) {
         this.loadBalancerStrategy = loadBalancerStrategy
+        this.showRequestInfo = showRequestInfo
 
         servers.forEach((server, index) => {
             this.servers.push(server);
@@ -103,6 +105,9 @@ export class Client {
             case LOAD_BALANCER.LEAST_LATENCY:
                 return this.getLeastLatencyClient()
 
+            case LOAD_BALANCER.EPSILON_GREEDY:
+                return this.getEpsilonGreedyClient()
+
             default:
                 return this.getLeastConnectionClient();
         }
@@ -149,28 +154,29 @@ export class Client {
 
             const response = zlib.gunzipSync(body).toString('utf8');
             const end = performance.now();
+            const bytes = body.length;
 
             this.activeRequests.set(index, this.activeRequests.get(index)! + 1);
 
-            // Store latency
             const latencies = this.latencies.get(index)!;
             latencies.push(+Number(end - start).toFixed(0));
+
             if (latencies.length > this.HISTORY_LIMIT) latencies.shift();
 
-            const bytes = body.length;
+            const info = this.showRequestInfo ? {
+                loadBalancerStrategy: this.loadBalancerStrategy,
+                server: {
+                    url: server.url,
+                    requests: this.activeRequests.get(index)!
+                },
+                performance: {
+                    size: bytes,
+                    time: +Number(end - start).toFixed(0),
+                }
+            } : undefined
 
             return {
-                info: {
-                    loadBalancerStrategy: this.loadBalancerStrategy,
-                    server: {
-                        url: server.url,
-                        requests: this.activeRequests.get(index)!
-                    },
-                    performance: {
-                        size: bytes,
-                        time: +Number(end - start).toFixed(0),
-                    }
-                },
+                info,
                 ...JSON.parse(response),
             };
 
