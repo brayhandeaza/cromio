@@ -36,7 +36,6 @@ server.addExtension(timestampExt);
 
 
 
-
 server.addTrigger("getUsers", async (ctx: MiddlewareType<{ age: number }>) => {
     ctx.reply(users)
 })

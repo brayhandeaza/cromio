@@ -2,7 +2,6 @@ import { EncodingType } from '.';
 import { LOAD_BALANCER } from '../constants';
 import { Client } from '../core/client';
 import { MessageDataType, RequestErrorType, TSLOptions } from './server';
-import http2 from 'http2';
 
 export interface ClientType {
     secretKey: string;

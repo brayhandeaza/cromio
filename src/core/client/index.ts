@@ -10,7 +10,7 @@ export class Client {
     private plugins: Map<string, ClientPluginsType> = new Map();
     private servers: ServersType[] = [];
     private activeRequests: Map<number, number> = new Map();
-    private latencies: Map<number, number[]> = new Map(); // serverIndex => array of latencies
+    private latencies: Map<number, number[]> = new Map();
     private readonly TIMEOUT = 5000;
     private readonly HISTORY_LIMIT = 10;
     private readonly loadBalancerStrategy: LOAD_BALANCER
@@ -35,7 +35,6 @@ export class Client {
             return this.getBestBiasedClient(); // Or getLeastLatencyClient
         }
     }
-
 
     private getLeastConnectionClient(): { server: ServersType; index: number } {
         let min = Infinity;
@@ -96,7 +95,6 @@ export class Client {
         };
     }
 
-
     private getNextClient(): { server: ServersType; index: number } {
         switch (this.loadBalancerStrategy) {
             case LOAD_BALANCER.BEST_BIASED:
@@ -138,7 +136,6 @@ export class Client {
                     }
                     : undefined,
             };
-
 
             const gotClient = got.extend({
                 timeout: {

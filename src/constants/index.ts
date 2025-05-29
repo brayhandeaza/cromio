@@ -7,13 +7,9 @@ export enum ENCODER {
     ASCII = "ascii"
 }
 
-export enum DECODER {
-    UTF8 = "utf-8",
-    BUFFER = "buffer",
-    JSON = "json",
-    BASE64 = "base64",
-    HEX = "hex",
-    ASCII = "ascii"
+export enum LANGUAGES {
+    NODEJS = "nodejs",
+    PYTHON = "python"
 }
 
 export const PLATFORM = "nodejs";

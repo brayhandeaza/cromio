@@ -122,9 +122,8 @@ export class Server<TInjected extends object = {}> {
 
     public registerTriggerDefinition({ triggers }: { triggers: TriggerDefinitionType }) {
         triggers.forEach((callback, name) => {
-            this.addTrigger(name, callback);
+            this.addTrigger(name, callback );
         })
-
     }
 
     public addTrigger(name: string, ...callbacks: MiddlewareCallback[]) {
@@ -168,21 +167,35 @@ export class Server<TInjected extends object = {}> {
     }
 
     private async runMiddlewareChain(callbacks: MiddlewareCallback[], context: MiddlewareType): Promise<any> {
-        let lastResult: any;
-
         for (const callback of callbacks) {
             let responded = false;
             let responsePayload: any = null;
 
             try {
-                // Call middleware and await result
-                lastResult = await callback({
+                const result = await callback({
                     ...context,
                     reply: (msg: any) => {
                         responded = true;
                         responsePayload = msg;
                     },
                 });
+
+                if (responded) {
+                    if (this.logs) this.Logs.trigger({
+                        trigger: context.trigger,
+                        language: context.credentials.language,
+                        ip: context.credentials.ip,
+                    });
+
+                    context.reply(responsePayload);
+                    return;
+                }
+
+                // NEW: If middleware returned something (not undefined), treat it like an early return
+                if (result !== undefined) {
+                    return result;
+                }
+
             } catch (err: any) {
                 const error = this.break(err);
 
@@ -194,24 +207,13 @@ export class Server<TInjected extends object = {}> {
                 });
 
                 context.reply({ error: error.message }, 500);
-                return; // stop chain on error
-            }
-
-            if (responded) {
-                if (this.logs) this.Logs.trigger({
-                    trigger: context.trigger,
-                    language: context.credentials.language,
-                    ip: context.credentials.ip,
-                });
-                // Send response and stop chain early
-                context.reply(responsePayload);
                 return;
             }
         }
 
-        // If no middleware called reply(), return the last result for addTrigger to handle
-        return lastResult;
+        return undefined;
     }
+
     private verifyClient(credentials: ClientFromServerType): { passed: boolean, message: string } {
         const client = this.clients.get(credentials.secretKey);
         switch (true) {

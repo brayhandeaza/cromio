@@ -1,4 +1,4 @@
-import { Client, LOAD_BALANCER,  } from "./src"
+import { Client, LOAD_BALANCER, } from "./src"
 import http from "http"
 import cluster from "cluster";
 import os from "os";
@@ -15,7 +15,7 @@ const client = new Client({
             }
         },
         {
-            url: 'http://localhost:2003',
+            url: 'http://localhost:2002',
             credentials: {
                 secretKey: '5d8c957c754136994cf790daa351f5df28c7fac6d89f4f59f46c259177e1c6be'
             }
@@ -42,7 +42,7 @@ if (cluster.isMaster) {
         }
     });
 
-    httpServer.listen(2002, () => {
+    httpServer.listen(2000, () => {
         console.log('Server started on port 2000');
     });
 }
