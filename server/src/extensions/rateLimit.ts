@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { OnRequestType, RateLimitBucket, RateLimiter, ServerExtension } from '../types';
 
-export const rateLimitExtension = ({ limit, interval }: { limit: number, interval: number }): ServerExtension<{ rateLimiter: RateLimiter }> => {
+export const requestRateLimiter = ({ limit, interval }: { limit: number, interval: number }): ServerExtension<{ rateLimiter: RateLimiter }> => {
     return {
         // Initialize the rate limiter to inject it into the server
         injectProperties() {
