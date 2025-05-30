@@ -1,17 +1,6 @@
 import cron from 'node-cron';
-import { ServerExtension } from '../src';
+import { RateLimitBucket, RateLimiter, ServerExtension } from '../types';
 
-
-type RateLimitBucket = {
-    tokens: number;
-    lastRefill: number;
-};
-
-type RateLimiter = {
-    limit: number;
-    interval: number;
-    check: (ip: string) => boolean;
-};
 
 export const rateLimitExtension = ({ limit, interval }: { limit: number, interval: number }): ServerExtension<{ rateLimiter: RateLimiter }> => {
     return {
@@ -61,7 +50,7 @@ export const rateLimitExtension = ({ limit, interval }: { limit: number, interva
             };
         },
         onRequest({ server, request }) {
-            const ip = request.client.ip;
+            const ip = request.credentials.ip;
             const allowed = server.rateLimiter.check(ip);
 
             console.log({ ip, allowed });

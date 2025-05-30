@@ -1,4 +1,4 @@
-import { ClientFromServerType } from '.';
+import { ClientFromServerType, ExtensionType, OnErrorType, OnRequestType, OnStartType } from '.';
 import { Server } from '../core/server';
 
 export type RequestErrorType = {
@@ -9,15 +9,9 @@ export type RequestErrorType = {
 
 export type ServerExtension<TInjected extends object = any> = {
     injectProperties?(server: Server<TInjected> & TInjected): Partial<TInjected>;
-    onStart?(ctx: { server: Server<TInjected> & TInjected }): void;
-    onRequest?(ctx: {
-        server: Server<TInjected> & TInjected;
-        request: OnRequestDataType;
-    }): void;
-    onError?(ctx: {
-        server: Server<TInjected> & TInjected;
-        error: Error;  // Handling errors with the error object
-    }): void;
+    onStart?(ctx: OnStartType): void;
+    onRequest?(ctx: OnRequestType): void;
+    onError?(ctx: OnErrorType): void;
 
     onStop?(ctx: { server: Server<TInjected> & TInjected }): void;
     [key: string]: any;
@@ -58,10 +52,7 @@ export type MessageDataType = {
 export type OnRequestDataType = {
     trigger: string,
     payload: any,
-    type: string,
-    client: ClientFromServerType & {
-        uuid: string       
-    }
+    client: ClientFromServerType
 }
 
 

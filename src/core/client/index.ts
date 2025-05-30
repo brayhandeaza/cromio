@@ -178,7 +178,9 @@ export class Client {
             };
 
         } catch (err: any) {
-            throw new Error(`Client request failed: ${err.message}`);
+            console.log({ err: err.message });
+
+            throw err.message
         }
     }
 }

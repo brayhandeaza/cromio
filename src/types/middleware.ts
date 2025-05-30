@@ -2,7 +2,7 @@ import { Server } from '../core/server';
 import { ClientFromServerType, CredentialsType } from './client';
 import { ServerExtension, TriggerDefinitionType } from '.';
 
-type TriggerHandlerType<TInjected extends object = {}> = {
+export type TriggerHandlerType<TInjected extends object = {}> = {
     trigger: string;
     credentials: CredentialsType;
     body: any;
@@ -16,6 +16,8 @@ type TriggerHandlerType<TInjected extends object = {}> = {
     };
 }
 
+
+export type ExtensionType<TInjected extends object = any> = TriggerHandlerType<TInjected> 
 
 export type MiddlewareType<TInjected extends object = any> = TriggerHandlerType<TInjected> & {
     reply: (data: any, code?: number) => void

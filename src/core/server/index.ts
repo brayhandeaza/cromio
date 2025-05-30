@@ -6,6 +6,8 @@ import { Extensions } from './Extensions';
 import Fastify from 'fastify';
 import { ClientMessageDataType } from '../../auth/server';
 import { z } from 'zod';
+import { ALLOW_MESSAGE } from '../../constants';
+import { error } from 'console';
 
 export class Server<TInjected extends object = {}> {
     private extensions!: Extensions<TInjected>;
@@ -52,6 +54,8 @@ export class Server<TInjected extends object = {}> {
                 const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
                 const { trigger, payload, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
 
+
+
                 const auth = this.verifyClient(credentials);
                 if (!auth.passed) return reply.send(zlib.gzipSync(JSON.stringify({
                     error: {
@@ -59,14 +63,15 @@ export class Server<TInjected extends object = {}> {
                     }
                 }))).status(500);
 
-                this.extensions.triggerHook("onRequest", {
-                    server: this,
-                    request,
-                });
+
 
                 const handler = this.triggers.get(trigger);
                 if (!handler) {
                     const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+                    this.extensions.triggerHook("onError", {
+                        server: this,
+                        error: new Error(message),
+                    });
                     reply.send(zlib.gzipSync(JSON.stringify({
                         error: {
                             message
@@ -79,24 +84,48 @@ export class Server<TInjected extends object = {}> {
                     // Replace undefined with null or {} to ensure valid JSON
                     const safeData = data === undefined ? null : { data };
 
+                    try {
+                        this.extensions.triggerHook("onRequest", {
+                            server: this,
+                            request: { trigger, payload, credentials: auth.client },
+                        });
+                    } catch (err: any) {
+                        throw new Error(err?.message || String(err));
+                    }
+
                     const message = zlib.gzipSync(JSON.stringify(safeData));
                     reply.status(code).send(message);
                 });
 
             } catch (error: any) {
                 const { message } = JSON.parse(error.message)[0]
+
+                this.extensions.triggerHook("onError", {
+                    server: this,
+                    error: new Error(message),
+                });
+
                 reply.send(zlib.gzipSync(JSON.stringify({
-                    error: {
-                        message
-                    }
-                }))).status(500);
+                    error: { message }
+                })));
             }
+
         });
 
         fastify.listen({ port: this.port }, (err, address) => {
-            if (err) throw err;
+            if (err) {
+                this.extensions.triggerHook("onError", {
+                    server: this,
+                    error: new Error(err.message),
+                });
+
+                throw err
+            };
 
             if (callback) callback(address.replaceAll("[::1]", `${ip()}`));
+            this.extensions.triggerHook("onStart", {
+                server: this,
+            });
         });
     }
 
@@ -122,7 +151,7 @@ export class Server<TInjected extends object = {}> {
 
     public registerTriggerDefinition({ triggers }: { triggers: TriggerDefinitionType }) {
         triggers.forEach((callback, name) => {
-            this.addTrigger(name, callback );
+            this.addTrigger(name, callback);
         })
     }
 
@@ -214,7 +243,7 @@ export class Server<TInjected extends object = {}> {
         return undefined;
     }
 
-    private verifyClient(credentials: ClientFromServerType): { passed: boolean, message: string } {
+    private verifyClient(credentials: ClientFromServerType): { passed: boolean, message: string, client?: ClientFromServerType } {
         const client = this.clients.get(credentials.secretKey);
         switch (true) {
             case !credentials.secretKey:
@@ -241,7 +270,8 @@ export class Server<TInjected extends object = {}> {
             default:
                 return {
                     passed: true,
-                    message: ""
+                    message: "",
+                    client
                 }
         }
     }
