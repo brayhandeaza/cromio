@@ -1,4 +1,4 @@
-import { Server } from '../core/server';
+import { Server } from '../core';
 import { ClientFromServerType, CredentialsType } from './client';
 import { ServerExtension, TriggerDefinitionType } from '.';
 

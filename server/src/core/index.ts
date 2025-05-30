@@ -1,13 +1,12 @@
 import zlib from 'zlib';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
-import { ClientFromServerType, TriggerCallback, ServerContructorType, TriggerDefinitionType, MiddlewareType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension } from '../../types';
+import { ClientFromServerType, TriggerCallback, ServerContructorType, TriggerDefinitionType, MiddlewareType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension } from '../types';
 import { Extensions } from './Extensions';
 import Fastify from 'fastify';
-import { ClientMessageDataType } from '../../auth/server';
+import { ClientMessageDataType } from '../auth/server';
 import { z } from 'zod';
-import { ALLOW_MESSAGE } from '../../constants';
-import { error } from 'console';
+
 
 export class Server<TInjected extends object = {}> {
     private extensions!: Extensions<TInjected>;

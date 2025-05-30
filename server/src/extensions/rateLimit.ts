@@ -1,9 +1,9 @@
 import cron from 'node-cron';
-import { RateLimitBucket, RateLimiter, ServerExtension } from '../types';
-
+import { OnRequestType, RateLimitBucket, RateLimiter, ServerExtension } from '../types';
 
 export const rateLimitExtension = ({ limit, interval }: { limit: number, interval: number }): ServerExtension<{ rateLimiter: RateLimiter }> => {
     return {
+        // Initialize the rate limiter to inject it into the server
         injectProperties() {
             const buckets = new Map<string, RateLimitBucket>();
             const refill = (bucket: RateLimitBucket) => {
@@ -19,12 +19,9 @@ export const rateLimitExtension = ({ limit, interval }: { limit: number, interva
             // Clean inactive buckets using cron every minute
             cron.schedule('* * * * *', () => {
                 const now = Date.now();
-                for (const [ip, bucket] of buckets.entries()) {
-                    if (now - bucket.lastRefill > interval * 1.5) {
+                for (const [ip, bucket] of buckets.entries())
+                    if (now - bucket.lastRefill > interval * 1.5)
                         buckets.delete(ip);
-                        console.log(`[RateLimit] Cleaned inactive IP bucket: ${ip}`);
-                    }
-                }
             });
 
             return {
@@ -49,17 +46,18 @@ export const rateLimitExtension = ({ limit, interval }: { limit: number, interva
                 },
             };
         },
-        onRequest({ server, request }) {
-            const ip = request.credentials.ip;
-            const allowed = server.rateLimiter.check(ip);
+        // Check if the client has exceeded the rate limit before processing the request
+        onRequest({ request, server }: OnRequestType<{ rateLimiter: RateLimiter }>) {
+            try {
+                const ip = request.credentials.ip;
+                const allowed = server.rateLimiter.check(ip);
+                if (!allowed)
+                    throw new Error(JSON.stringify([{
+                        message: `Client ${ip} has exceeded the rate limit of ${server.rateLimiter.limit} requests every ${server.rateLimiter.interval / 1000} seconds. Please try again later.`
+                    }]));
 
-            console.log({ ip, allowed });
-            if (!allowed) {
-                throw `Client ${ip} has exceeded the rate limit of ${server.rateLimiter.limit} requests every ${server.rateLimiter.interval / 1000} seconds. Please try again later.`
-            }
-        },
-        onStart({ server }) {
-            console.log("[RateLimit] Rate limiter initialized.");
+
+            } catch (error) { throw error }
         }
-    };
-};
+    }
+}

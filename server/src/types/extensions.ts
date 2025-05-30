@@ -1,5 +1,5 @@
 import { ClientFromServerType, CredentialsType, ServerExtension, TriggerDefinitionType } from ".";
-import { Server } from "../core/server";
+import { Server } from "../core";
 import { MiddlewareCallback } from "./middleware";
 
 export type RateLimitBucket = {

@@ -1,17 +1,10 @@
 import { EncodingType } from '.';
 import { LOAD_BALANCER } from '../constants';
-import { Client } from '../core/client';
-import { MessageDataType, RequestErrorType, TSLOptions } from './server';
+import { TSLOptions } from './server';
 
 export interface ClientType {
     secretKey: string;
 }
-
-export type ClientPluginsType = {
-    requestReceived?: (payload: MessageDataType, socket: Client) => Promise<MessageDataType> | MessageDataType;
-    requestFailed?: (error: RequestErrorType, data: MessageDataType) => void;
-};
-
 
 export interface CredentialsType extends ClientType {
     ip: string;
@@ -25,8 +18,6 @@ export type ClientContructorType = {
     decoder?: EncodingType;
     credentials?: ClientType;
 }
-
-export type ClientInstanceType = Client
 
 export type ClientFromServerType = {
     secretKey: string;
@@ -44,9 +35,7 @@ export type ServerOptions = {
     };
 };
 
-export type ServersType = & ServerOptions & {
-    // server: http2.ClientHttp2Session
-};
+export type ServersType = & ServerOptions
 
 export type ClientConfig = {
     servers: ServerOptions[];

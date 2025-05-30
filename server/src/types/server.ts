@@ -1,5 +1,5 @@
 import { ClientFromServerType, ExtensionType, OnErrorType, OnRequestType, OnStartType } from '.';
-import { Server } from '../core/server';
+import { Server } from '../core';
 
 export type RequestErrorType = {
     error: {

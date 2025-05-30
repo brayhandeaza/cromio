@@ -2,12 +2,11 @@ import shortUUID from 'short-uuid';
 import zlib from 'zlib';
 import got from 'got';
 import { ip } from 'address';
-import { ClientPluginsType, ClientConfig, ServersType, ResponseType } from '../../types';
-import { ALLOW_MESSAGE, LOAD_BALANCER, LOCALHOST, PLATFORM, } from '../../constants';
+import {  ClientConfig, ServersType, ResponseType } from '../types';
+import { ALLOW_MESSAGE, LOAD_BALANCER, LOCALHOST, PLATFORM, } from '../constants';
 import { performance } from "perf_hooks"
 
 export class Client {
-    private plugins: Map<string, ClientPluginsType> = new Map();
     private servers: ServersType[] = [];
     private activeRequests: Map<number, number> = new Map();
     private latencies: Map<number, number[]> = new Map();
@@ -109,12 +108,6 @@ export class Client {
             default:
                 return this.getLeastConnectionClient();
         }
-    }
-
-    public addPlugin(callbacks: ClientPluginsType[]): void {
-        callbacks.forEach((plugin) => {
-            this.plugins.set(shortUUID.generate(), plugin);
-        });
     }
 
     public async send(trigger: string, payload: any): Promise<ResponseType> {

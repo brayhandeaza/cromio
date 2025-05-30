@@ -1,4 +1,4 @@
-import { ServerExtension } from "../../types";
+import { ServerExtension } from "../types";
 
 
 
