@@ -9,12 +9,11 @@ import { z } from 'zod';
 
 
 export class Server<TInjected extends object = {}> {
-    private extensions!: Extensions<TInjected>;
+    private extensions: Extensions<TInjected>;
     private port: number;
     private logs: boolean;
     private triggers = new Map<string, TriggerHandler>();
     private globalMiddlewares: TriggerCallback[] = [];
-
     public clients = new Map<string, ClientFromServerType>();
 
     private Logs = {
@@ -159,7 +158,13 @@ export class Server<TInjected extends object = {}> {
             let responseSent = false;
 
             const context: MiddlewareType = {
-                server: this,
+                server: {
+                    ...this,
+                    extensions: this.extensions,
+                    port: this.port,
+                    logs: this.logs,
+                    clients: this.clients
+                },
                 trigger: name,
                 credentials,
                 body: payload,
