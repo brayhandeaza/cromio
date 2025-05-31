@@ -1,4 +1,4 @@
-import { ClientFromServerType, CredentialsType, ServerOptions, ServersType } from ".";
+import { ServerOptions, ServersType } from ".";
 import { LOAD_BALANCER } from "../constants";
 import { Client } from "../core";
 import { Extensions } from "../core/Extensions";
