@@ -1,6 +1,7 @@
-import { ClientFromServerType, CredentialsType, ServerExtension, TriggerDefinitionType } from ".";
+import { ClientFromServerType, CredentialsType, ServerExtension, TriggerCallback, TriggerDefinitionType } from ".";
 import { Server } from "../core";
 import { MiddlewareCallback } from "./middleware";
+
 
 export type RateLimitBucket = {
     tokens: number;
@@ -23,7 +24,6 @@ type ServerExtensionsType<TInjected extends object = any> = TInjected & {
     addGlobalMiddleware(...callbacks: MiddlewareCallback[]): void
     addExtension<TNew extends {}>(...exts: ServerExtension<TNew>[]): asserts this is Server<TInjected & TNew> & TNew
 }
-
 
 
 export type OnRequestType<TInjected extends object = any> = {

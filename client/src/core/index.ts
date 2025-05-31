@@ -1,23 +1,30 @@
 import shortUUID from 'short-uuid';
-import zlib from 'zlib';
+import zlib, { createGunzip } from 'zlib';
 import got from 'got';
 import { ip } from 'address';
-import {  ClientConfig, ServersType, ResponseType } from '../types';
+import { ClientConfig, ServersType, ResponseType, ClientExtension } from '../types';
 import { ALLOW_MESSAGE, LOAD_BALANCER, LOCALHOST, PLATFORM, } from '../constants';
 import { performance } from "perf_hooks"
+import { Extensions } from './Extensions';
+import { parser } from 'stream-json';
+import { streamArray } from 'stream-json/streamers/StreamArray';
+import { streamObject } from 'stream-json/streamers/StreamObject';
+import { chain, Readable } from 'stream-chain';
 
-export class Client {
+export class Client<TInjected extends object = {}> {
     private servers: ServersType[] = [];
     private activeRequests: Map<number, number> = new Map();
     private latencies: Map<number, number[]> = new Map();
     private readonly TIMEOUT = 5000;
     private readonly HISTORY_LIMIT = 10;
     private readonly loadBalancerStrategy: LOAD_BALANCER
+    private extensions: Extensions<TInjected>
     public showRequestInfo: boolean
 
     constructor({ servers, showRequestInfo = false, loadBalancerStrategy = LOAD_BALANCER.BEST_BIASED }: ClientConfig) {
         this.loadBalancerStrategy = loadBalancerStrategy
         this.showRequestInfo = showRequestInfo
+        this.extensions = new Extensions();
 
         servers.forEach((server, index) => {
             this.servers.push(server);
@@ -110,7 +117,19 @@ export class Client {
         }
     }
 
-    public async send(trigger: string, payload: any): Promise<ResponseType> {
+    public addExtension<TNew extends {}>(...exts: ClientExtension<TNew>[]) {
+        exts.forEach(ext => {
+            if (ext.injectProperties) {
+                const injected = ext.injectProperties(this as any); // We assert `any` here internally
+                Object.assign(this, injected);
+            }
+
+            this.extensions.useExtension(ext)
+        });
+    }
+
+
+    public async trigger(trigger: string, payload: any): Promise<ResponseType> {
         try {
             const start = performance.now();
             const { server, index } = this.getNextClient();
@@ -130,14 +149,22 @@ export class Client {
                     : undefined,
             };
 
-            const gotClient = got.extend({
+            const client = got.extend({
                 timeout: {
                     request: this.TIMEOUT
                 }
             })
 
+            this.extensions.triggerHook('onRequestBegin', {
+                request: {
+                    server,
+                    trigger,
+                    payload
+                },
+                client: this,
+            })
             const message = zlib.gzipSync(JSON.stringify(data))
-            const { body } = await gotClient.post(server.url, {
+            const { body } = await client.post(server.url, {
                 json: { message: message.toString('base64') },
                 responseType: 'buffer',
             });
@@ -165,6 +192,37 @@ export class Client {
                 }
             } : undefined
 
+            this.extensions.triggerHook('onRequestEnd', {
+                request: {
+                    server,
+                    trigger,
+                    payload
+                },
+                response: {
+                    info: {
+                        loadBalancerStrategy: this.loadBalancerStrategy,
+                        server: {
+                            url: server.url,
+                            requests: this.activeRequests.get(index)!
+                        },
+                        performance: {
+                            size: bytes,
+                            time: +Number(end - start).toFixed(0),
+                        }
+                    },
+                    ...JSON.parse(response),
+                },
+                client: {
+                    ...this,
+                    servers: this.servers,
+                    activeRequests: this.activeRequests,
+                    latencies: this.latencies,
+                    extensions: this.extensions,
+                    showRequestInfo: this.showRequestInfo,
+                    loadBalancerStrategy: this.loadBalancerStrategy
+                },
+            })
+
             return {
                 info,
                 ...JSON.parse(response),
@@ -176,4 +234,209 @@ export class Client {
             throw err.message
         }
     }
+
+    public triggerStream(trigger: string, payload: any, onData?: (data: any | null, error: Error | null, done: boolean) => void): void {
+        const { server, index } = this.getNextClient();
+        const start = performance.now();
+
+        // Fire onRequestBegin hook
+        this.extensions.triggerHook('onRequestBegin', {
+            request: {
+                server,
+                trigger,
+                payload
+            },
+            client: this,
+        });
+
+        const message = zlib.gzipSync(
+            JSON.stringify({
+                uuid: shortUUID.generate(),
+                trigger,
+                type: ALLOW_MESSAGE.RPC,
+                payload,
+                credentials: server.credentials
+                    ? {
+                        ...server.credentials,
+                        language: PLATFORM,
+                        ip: ip() || LOCALHOST,
+                    }
+                    : undefined,
+            })
+        );
+
+        const client = got.extend({
+            timeout: { request: this.TIMEOUT },
+        });
+
+        const stream = client.stream.post(server.url, {
+            json: { message: message.toString('base64') },
+        });
+
+        const gunzip = createGunzip();
+        const jsonParser = parser();
+        const streamObj = streamObject();
+
+        let allData: any[] = [];
+        let bytes = 0;
+
+        const handleError = (err: Error) => {
+            if (onData) onData(null, err, false);
+        };
+
+        stream.on('error', handleError);
+        gunzip.on('error', handleError);
+        jsonParser.on('error', handleError);
+        streamObj.on('error', handleError);
+
+        stream.pipe(gunzip).pipe(jsonParser).pipe(streamObj);
+
+        streamObj.on('data', ({ key, value }) => {
+            if (key === 'data') {
+                if (Array.isArray(value)) {
+                    const arraySource = chain([
+                        Readable.from(JSON.stringify(value)),
+                        parser(),
+                        streamArray(),
+                    ]);
+
+                    arraySource.on('data', ({ value }) => {
+                        allData.push(value);
+                        if (onData) onData(value, null, false);
+                    });
+
+                    arraySource.on('end', () => {
+                        const end = performance.now();
+                        const fullResponse = { data: allData };
+                        const serialized = JSON.stringify(fullResponse);
+                        
+                        bytes = Buffer.byteLength(serialized);
+                        if (onData) onData(allData[allData.length - 1], null, true);
+
+                        // Fire onRequestEnd
+                        this.extensions.triggerHook('onRequestEnd', {
+                            request: {
+                                server,
+                                trigger,
+                                payload,
+                            },
+                            response: {
+                                info: {
+                                    loadBalancerStrategy: this.loadBalancerStrategy,
+                                    server: {
+                                        url: server.url,
+                                        requests: this.activeRequests.get(index)!,
+                                    },
+                                    performance: {
+                                        size: bytes,
+                                        time: +Number(end - start).toFixed(0),
+                                    }
+                                },
+                                ...fullResponse,
+                            },
+                            client: {
+                                ...this,
+                                servers: this.servers,
+                                activeRequests: this.activeRequests,
+                                latencies: this.latencies,
+                                extensions: this.extensions,
+                                showRequestInfo: this.showRequestInfo,
+                                loadBalancerStrategy: this.loadBalancerStrategy,
+                            },
+                        });
+                    });
+
+                    arraySource.on('error', handleError);
+                } else {
+                    allData.push(value);
+                    const end = performance.now();
+                    const fullResponse = {
+                        data: value,
+                        error: null,
+                    };
+
+                    bytes = Buffer.byteLength(JSON.stringify(fullResponse));
+                    if (onData) onData(value, null, true);
+
+                    // Fire onRequestEnd
+                    this.extensions.triggerHook('onRequestEnd', {
+                        request: {
+                            server,
+                            trigger,
+                            payload,
+                        },
+                        response: {
+                            info: {
+                                loadBalancerStrategy: this.loadBalancerStrategy,
+                                server: {
+                                    url: server.url,
+                                    requests: this.activeRequests.get(index)!,
+                                },
+                                performance: {
+                                    size: bytes,
+                                    time: +Number(end - start).toFixed(0),
+                                }
+                            },
+                            ...fullResponse,
+                        },
+                        client: {
+                            ...this,
+                            servers: this.servers,
+                            activeRequests: this.activeRequests,
+                            latencies: this.latencies,
+                            extensions: this.extensions,
+                            showRequestInfo: this.showRequestInfo,
+                            loadBalancerStrategy: this.loadBalancerStrategy,
+                        },
+                    });
+                }
+            }
+        });
+
+        streamObj.on('end', () => {
+            // If nothing was streamed and we never reached `on('data')`
+            if (allData.length === 0 && onData) {
+                const end = performance.now();
+                const fullResponse = {
+                    data: null,
+                    error: null,
+                };
+
+                bytes = Buffer.byteLength(JSON.stringify(fullResponse));
+                onData(null, null, true);
+
+                this.extensions.triggerHook('onRequestEnd', {
+                    request: {
+                        server,
+                        trigger,
+                        payload,
+                    },
+                    response: {
+                        info: {
+                            loadBalancerStrategy: this.loadBalancerStrategy,
+                            server: {
+                                url: server.url,
+                                requests: this.activeRequests.get(index)!,
+                            },
+                            performance: {
+                                size: bytes,
+                                time: +Number(end - start).toFixed(0),
+                            }
+                        },
+                        ...fullResponse,
+                    },
+                    client: {
+                        ...this,
+                        servers: this.servers,
+                        activeRequests: this.activeRequests,
+                        latencies: this.latencies,
+                        extensions: this.extensions,
+                        showRequestInfo: this.showRequestInfo,
+                        loadBalancerStrategy: this.loadBalancerStrategy,
+                    },
+                });
+            }
+        });
+    }
+
 }
