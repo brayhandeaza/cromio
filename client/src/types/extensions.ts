@@ -8,6 +8,9 @@ export type ClientExtension<TInjected extends object = any> = {
     injectProperties?(server: Client<TInjected> & TInjected): Partial<TInjected>;
     onRequestBegin?(ctx: OnRequestBeginType): void;
     onRequestEnd?(ctx: OnRequestEndType): void;
+    onRequestRetry?(ctx: OnRequestRetryType): void;
+    onStart?(ctx: OnStartType<TInjected>): void;
+    onError?(ctx: OnErrorType): void;
     [key: string]: any;
 };
 
@@ -20,12 +23,9 @@ type ClientType<TInjected extends object> = {
     loadBalancerStrategy: LOAD_BALANCER
 }
 
+type ClientExtensionsType<TInjected extends object = any> = TInjected
 
-const a = {
-    b: 0
-}
-
-type ClientExtensionsType<TInjected extends object = any> = TInjected & Client & ClientType<TInjected>
+export type OnStartType<TInjected extends object> = ClientType<TInjected> & TInjected
 
 export type OnRequestBeginType<TInjected extends object = any> = {
     request: {
@@ -33,7 +33,17 @@ export type OnRequestBeginType<TInjected extends object = any> = {
         trigger: string;
         payload: any
     }
-    client: ClientExtensionsType<TInjected> & TInjected
+    client: ClientExtensionsType<TInjected> & TInjected & Client
+}
+export type OnRequestRetryType<TInjected extends object = any> = {
+    retryCount: number
+    error: Error
+    request: {
+        server: ServerOptions
+        trigger: string;
+        payload: any
+    }
+    client: ClientExtensionsType<TInjected> & TInjected & Client
 }
 
 export type OnRequestEndType<TInjected extends object = any> = TInjected & {
@@ -42,14 +52,25 @@ export type OnRequestEndType<TInjected extends object = any> = TInjected & {
         trigger: string;
         payload: any
     }
-    client: ClientType<TInjected>
+    client: ClientExtensionsType<TInjected> & TInjected & Client
     response: {
-        info: [key: string, value: any]
-        data: [key: string, value: any] | null
+        status: number
+        info?: {
+            loadBalancerStrategy: string
+            server: {
+                url: string
+                requests: number
+            },
+            performance: {
+                size: number,
+                time: number,
+            }
+        }
+        data: JSON | null
     }
 }
 
 export type OnErrorType<TInjected extends object = any> = {
-    server: ClientExtensionsType<TInjected> & TInjected
+    client: ClientExtensionsType<TInjected> & TInjected & Client
     error: Error
 }

@@ -7,7 +7,7 @@ export * from "./extensions";
 export type EncodingType = "utf-8" | "buffer" | "json" | "base64" | "hex" | "ascii";
 
 export type ResponseType = {
-    error?: JSON | null,
+    error?: JSON,
     info: {
         loadBalancerStrategy: string
         server: {

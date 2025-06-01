@@ -1,6 +1,6 @@
 import shortUUID from 'short-uuid';
 import zlib, { createGunzip } from 'zlib';
-import got from 'got';
+import got, { Got, ExtendOptions } from 'got';
 import { ip } from 'address';
 import { ClientConfig, ServersType, ResponseType, ClientExtension } from '../types';
 import { ALLOW_MESSAGE, LOAD_BALANCER, LOCALHOST, PLATFORM, } from '../constants';
@@ -15,11 +15,12 @@ export class Client<TInjected extends object = {}> {
     private servers: ServersType[] = [];
     private activeRequests: Map<number, number> = new Map();
     private latencies: Map<number, number[]> = new Map();
-    private readonly TIMEOUT = 5000;
-    private readonly HISTORY_LIMIT = 10;
+    private TIMEOUT = 5000;
+    private HISTORY_LIMIT = 10;
     private readonly loadBalancerStrategy: LOAD_BALANCER
     private extensions: Extensions<TInjected>
     public showRequestInfo: boolean
+    private client: (_: { server: ServersType }) => Got<ExtendOptions>
 
     constructor({ servers, showRequestInfo = false, loadBalancerStrategy = LOAD_BALANCER.BEST_BIASED }: ClientConfig) {
         this.loadBalancerStrategy = loadBalancerStrategy
@@ -31,6 +32,37 @@ export class Client<TInjected extends object = {}> {
             this.latencies.set(index, []);
             this.activeRequests.set(index, 0);
         })
+
+        this.client = ({ server }: { server: any }) => {
+            return got.extend({
+                timeout: {
+                    request: this.TIMEOUT
+                },
+                hooks: {
+                    beforeRetry: [(error, retryCount) => {
+                        this.extensions.triggerHook('onRequestRetry', {
+                            error,
+                            retryCount,
+                            server,
+                            client: this,
+                        });
+                    }],
+                    beforeError: [(error) => {
+                        this.extensions.triggerHook('onError', {
+                            client: this,
+                            error,
+                        })
+                        return error;
+                    }]
+                },
+                retry: {
+                    limit: 5, // Customize retry behavior as needed
+                    methods: ['POST'], // Ensure POST is retried
+                    statusCodes: [408, 413, 429, 500, 502, 503, 504],
+                    errorCodes: ['ETIMEDOUT', 'ECONNRESET', 'EAI_AGAIN']
+                }
+            })
+        }
     }
 
     private getEpsilonGreedyClient(epsilon = 0.1): { server: ServersType; index: number } {
@@ -149,22 +181,16 @@ export class Client<TInjected extends object = {}> {
                     : undefined,
             };
 
-            const client = got.extend({
-                timeout: {
-                    request: this.TIMEOUT
-                }
-            })
-
             this.extensions.triggerHook('onRequestBegin', {
+                client: this,
                 request: {
                     server,
                     trigger,
                     payload
-                },
-                client: this,
+                }
             })
             const message = zlib.gzipSync(JSON.stringify(data))
-            const { body } = await client.post(server.url, {
+            const { body, statusCode, headers } = await this.client({ server }).post(server.url, {
                 json: { message: message.toString('base64') },
                 responseType: 'buffer',
             });
@@ -200,6 +226,7 @@ export class Client<TInjected extends object = {}> {
                 },
                 response: {
                     info: {
+                        status: statusCode,
                         loadBalancerStrategy: this.loadBalancerStrategy,
                         server: {
                             url: server.url,
@@ -231,6 +258,10 @@ export class Client<TInjected extends object = {}> {
         } catch (err: any) {
             console.log({ err: err.message });
 
+            this.extensions.triggerHook('onError', {
+                client: this,
+                error: new Error(err.message),
+            })
             throw err.message
         }
     }
@@ -265,11 +296,7 @@ export class Client<TInjected extends object = {}> {
             })
         );
 
-        const client = got.extend({
-            timeout: { request: this.TIMEOUT },
-        });
-
-        const stream = client.stream.post(server.url, {
+        const stream = this.client({ server }).stream.post(server.url, {
             json: { message: message.toString('base64') },
         });
 
@@ -281,6 +308,11 @@ export class Client<TInjected extends object = {}> {
         let bytes = 0;
 
         const handleError = (err: Error) => {
+            this.extensions.triggerHook('onError', {
+                client: this,
+                error: err,
+            })
+
             if (onData) onData(null, err, false);
         };
 
@@ -288,6 +320,7 @@ export class Client<TInjected extends object = {}> {
         gunzip.on('error', handleError);
         jsonParser.on('error', handleError);
         streamObj.on('error', handleError);
+
 
         stream.pipe(gunzip).pipe(jsonParser).pipe(streamObj);
 
@@ -309,7 +342,7 @@ export class Client<TInjected extends object = {}> {
                         const end = performance.now();
                         const fullResponse = { data: allData };
                         const serialized = JSON.stringify(fullResponse);
-                        
+
                         bytes = Buffer.byteLength(serialized);
                         if (onData) onData(allData[allData.length - 1], null, true);
 
@@ -321,6 +354,7 @@ export class Client<TInjected extends object = {}> {
                                 payload,
                             },
                             response: {
+                                status: 200,
                                 info: {
                                     loadBalancerStrategy: this.loadBalancerStrategy,
                                     server: {
@@ -350,10 +384,7 @@ export class Client<TInjected extends object = {}> {
                 } else {
                     allData.push(value);
                     const end = performance.now();
-                    const fullResponse = {
-                        data: value,
-                        error: null,
-                    };
+                    const fullResponse = { data: value };
 
                     bytes = Buffer.byteLength(JSON.stringify(fullResponse));
                     if (onData) onData(value, null, true);
@@ -366,6 +397,7 @@ export class Client<TInjected extends object = {}> {
                             payload,
                         },
                         response: {
+                            status: 200,
                             info: {
                                 loadBalancerStrategy: this.loadBalancerStrategy,
                                 server: {
@@ -396,7 +428,6 @@ export class Client<TInjected extends object = {}> {
         streamObj.on('end', () => {
             // If nothing was streamed and we never reached `on('data')`
             if (allData.length === 0 && onData) {
-                const end = performance.now();
                 const fullResponse = {
                     data: null,
                     error: null,
@@ -404,39 +435,7 @@ export class Client<TInjected extends object = {}> {
 
                 bytes = Buffer.byteLength(JSON.stringify(fullResponse));
                 onData(null, null, true);
-
-                this.extensions.triggerHook('onRequestEnd', {
-                    request: {
-                        server,
-                        trigger,
-                        payload,
-                    },
-                    response: {
-                        info: {
-                            loadBalancerStrategy: this.loadBalancerStrategy,
-                            server: {
-                                url: server.url,
-                                requests: this.activeRequests.get(index)!,
-                            },
-                            performance: {
-                                size: bytes,
-                                time: +Number(end - start).toFixed(0),
-                            }
-                        },
-                        ...fullResponse,
-                    },
-                    client: {
-                        ...this,
-                        servers: this.servers,
-                        activeRequests: this.activeRequests,
-                        latencies: this.latencies,
-                        extensions: this.extensions,
-                        showRequestInfo: this.showRequestInfo,
-                        loadBalancerStrategy: this.loadBalancerStrategy,
-                    },
-                });
             }
         });
     }
-
 }
