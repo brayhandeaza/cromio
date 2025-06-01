@@ -71,6 +71,11 @@ export type OnRequestEndType<TInjected extends object = any> = TInjected & {
 }
 
 export type OnErrorType<TInjected extends object = any> = {
+    request: {
+        server: ServerOptions
+        trigger: string;
+        payload: any
+    }
     client: ClientExtensionsType<TInjected> & TInjected & Client
     error: Error
 }

@@ -20,7 +20,7 @@ export class Client<TInjected extends object = {}> {
     private readonly loadBalancerStrategy: LOAD_BALANCER
     private extensions: Extensions<TInjected>
     public showRequestInfo: boolean
-    private client: (_: { server: ServersType }) => Got<ExtendOptions>
+    private client: (_: { server: ServersType, request: any }) => Got<ExtendOptions>
 
     constructor({ servers, showRequestInfo = false, loadBalancerStrategy = LOAD_BALANCER.BEST_BIASED }: ClientConfig) {
         this.loadBalancerStrategy = loadBalancerStrategy
@@ -33,7 +33,7 @@ export class Client<TInjected extends object = {}> {
             this.activeRequests.set(index, 0);
         })
 
-        this.client = ({ server }: { server: any }) => {
+        this.client = ({ server, request }: { server: any, request: any }) => {
             return got.extend({
                 timeout: {
                     request: this.TIMEOUT
@@ -49,6 +49,7 @@ export class Client<TInjected extends object = {}> {
                     }],
                     beforeError: [(error) => {
                         this.extensions.triggerHook('onError', {
+                            request,
                             client: this,
                             error,
                         })
@@ -181,16 +182,13 @@ export class Client<TInjected extends object = {}> {
                     : undefined,
             };
 
+            const request = { server, trigger, payload }
             this.extensions.triggerHook('onRequestBegin', {
                 client: this,
-                request: {
-                    server,
-                    trigger,
-                    payload
-                }
+                request
             })
             const message = zlib.gzipSync(JSON.stringify(data))
-            const { body, statusCode, headers } = await this.client({ server }).post(server.url, {
+            const { body, statusCode, headers } = await this.client({ server, request }).post(server.url, {
                 json: { message: message.toString('base64') },
                 responseType: 'buffer',
             });
@@ -270,13 +268,9 @@ export class Client<TInjected extends object = {}> {
         const { server, index } = this.getNextClient();
         const start = performance.now();
 
-        // Fire onRequestBegin hook
+        const request = { server, trigger, payload }
         this.extensions.triggerHook('onRequestBegin', {
-            request: {
-                server,
-                trigger,
-                payload
-            },
+            request,
             client: this,
         });
 
@@ -296,7 +290,7 @@ export class Client<TInjected extends object = {}> {
             })
         );
 
-        const stream = this.client({ server }).stream.post(server.url, {
+        const stream = this.client({ server, request }).stream.post(server.url, {
             json: { message: message.toString('base64') },
         });
 
