@@ -8,8 +8,8 @@ import { Gauge, Histogram, register } from "prom-client";
 
 collectDefaultMetrics({ register });
 
-export function prometheusMetrics(options: PrometheusMetricsOptions = { port: 7000, includeTriggers: [] }): ClientExtension<{ timer: (_: { trigger: string; server: string; status: number }) => void }> {
-    const { showLogs = true, port, name = 'jrpc_client' } = options;
+export function prometheusMetrics(options: PrometheusMetricsOptions): ClientExtension<{ timer: (_: { trigger: string; server: string; status: number }) => void }> {
+    const { showLogs = true, port = 7001, name = 'jrpc_client' } = options;
     const server = Fastify();
 
     const retryCounter = new Gauge({

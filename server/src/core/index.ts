@@ -342,7 +342,7 @@ export class Server<TInjected extends object = {}> {
                     passed: false,
                     message: `🚫 Invalid Language: '${credentials.language}' not allowed for ip=${credentials.ip} — expected '${client.language}'`,
                 };
-            case client?.ip !== credentials.ip:
+            case client?.ip !== credentials.ip && client?.ip !== "*":
                 return {
                     passed: false,
                     message: `🚫 Invalid IP Address: Expected '${client.ip}', but received '${credentials.ip}'`,

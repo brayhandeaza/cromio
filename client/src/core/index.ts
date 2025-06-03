@@ -254,7 +254,7 @@ export class Client<TInjected extends object = {}> {
             };
 
         } catch (err: any) {
-            console.log({ err: err.message });
+            console.log({ trigger: err.message });
 
             this.extensions.triggerHook('onError', {
                 client: this,

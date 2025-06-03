@@ -1,11 +1,30 @@
 {
   "name": "@jrpc/server",
-  "description": "Encryption library",
-  "version": "1.0.1",
+  "description": "Modular and middleware-capable JSON-RPC server with extension support",
+  "version": "1.0.0",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "license": "MIT",
+  "author": "brayhandeaza",
+  "contributors": [
+    "brayhandeaza"
+  ],
+  "keywords": [
+    "json-rpc",
+    "rpc",
+    "server",
+    "middleware",
+    "plugin",
+    "extensible",
+    "protocol",
+    "json",
+    "typescript",
+    "nodejs",
+    "prometheus",
+    "metrics",
+    "observability"
+  ],
   "scripts": {
     "dev": "nodemon --exec ts-node -r tsconfig-paths/register app.ts",
     "start": "nodemon --exec ts-node -r tsconfig-paths/register index.ts",
