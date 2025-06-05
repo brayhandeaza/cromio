@@ -20,3 +20,19 @@ export const calculateConcurrency = (memoryUsedMB: number): number => {
 
 export const gzip = promisify(zlib.gzip);
 export const unzip = promisify(zlib.unzip);
+
+
+export function formatBytes(bytes: number) {
+    if (bytes === 0) return '0 Bytes';
+
+    const units = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const k = 1024;
+
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const size = bytes / Math.pow(k, i);
+
+    // Show up to 2 decimal places only if necessary
+    const formatted = size % 1 === 0 ? size.toFixed(0) : size.toFixed(2);
+
+    return `${formatted} ${units[i]}`;
+}

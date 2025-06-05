@@ -1,3 +1,4 @@
+import { jaegerTracing, JaegerTracingOptions } from "./jaeger";
 import { loggerExtension, LoggerOptionsType } from "./logger";
 import { prometheusMetrics, PrometheusMetricsOptions } from "./prometheus";
 
@@ -9,6 +10,8 @@ export class Extensions {
     static loggerExtension(options: LoggerOptionsType = { showOnRequestBegin: true, showOnRequestEnd: true }) {
         return loggerExtension(options);
     }
+
+    static jaegerTracing(options?: JaegerTracingOptions) {
+        return jaegerTracing(options);
+    }
 }
-
-
