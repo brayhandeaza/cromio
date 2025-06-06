@@ -1,7 +1,7 @@
 import zlib from 'zlib';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
-import { ClientFromServerType, TriggerCallback, ServerContructorType, TriggerDefinitionType, MiddlewareType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension } from '../types';
+import { ClientFromServerType, TriggerCallback, ServerContructorType, TriggerDefinitionType, OnTriggerType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension } from '../types';
 import { Extensions } from './Extensions';
 import Fastify from 'fastify';
 import { ClientMessageDataType } from '../auth/server';
@@ -226,15 +226,15 @@ export class Server<TInjected extends object = {}> {
 
     public registerTriggerDefinition({ triggers }: { triggers: TriggerDefinitionType }) {
         triggers.forEach((callback, name) => {
-            this.addTrigger(name, callback);
+            this.onTrigger(name, callback);
         })
     }
 
-    public addTrigger(name: string, ...callbacks: MiddlewareCallback[]) {
+    public onTrigger(name: string, ...callbacks: MiddlewareCallback[]) {
         this.triggers.set(name, async (payload, credentials, reply) => {
             let responseSent = false;
 
-            const context: MiddlewareType = {
+            const context: OnTriggerType = {
                 server: {
                     ...this,
                     extensions: this.extensions,
@@ -276,7 +276,7 @@ export class Server<TInjected extends object = {}> {
         }
     }
 
-    private async runMiddlewareChain(callbacks: MiddlewareCallback[], context: MiddlewareType): Promise<any> {
+    private async runMiddlewareChain(callbacks: MiddlewareCallback[], context: OnTriggerType): Promise<any> {
         for (const callback of callbacks) {
             let responded = false;
             let responsePayload: any = null;

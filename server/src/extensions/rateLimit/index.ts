@@ -1,9 +1,11 @@
 import cron from 'node-cron';
-import { OnRequestType, RateLimitBucket, RateLimiter, ServerExtension } from '../types';
+import { OnRequestType, ServerExtension } from '../../types';
+import { RateLimitBucket, RateLimiter, RateLimitOptionsType } from './utils';
+export type { RateLimitOptionsType } from './utils';
 
-export const requestRateLimiter = ({ limit, interval }: { limit: number, interval: number }): ServerExtension<{ rateLimiter: RateLimiter }> => {
+export const requestRateLimiter = ({ limit = 100, interval = 60000 }: RateLimitOptionsType): ServerExtension<{ rateLimiter: RateLimiter }> => {
     return {
-        // Initialize the rate limiter to inject it into the server
+        
         injectProperties() {
             const buckets = new Map<string, RateLimitBucket>();
             const refill = (bucket: RateLimitBucket) => {
@@ -46,7 +48,6 @@ export const requestRateLimiter = ({ limit, interval }: { limit: number, interva
                 },
             };
         },
-        // Check if the client has exceeded the rate limit before processing the request
         onRequest({ request, server }: OnRequestType<{ rateLimiter: RateLimiter }>) {
             try {
                 const ip = request.credentials.ip;

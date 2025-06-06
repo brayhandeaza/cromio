@@ -8,6 +8,26 @@ export type RequestErrorType = {
 }
 
 export type ServerExtension<TInjected extends object = any> = {
+    // /**
+    //         * The `injectProperties` method allows an extension to add arbitrary properties to the server,
+    //         * which will then be available to other extension hooks (e.g. `onStart`,  `onRequest`, `onResponse`, etc.).
+    //         *
+    //         * This is useful for injecting reusable services, utilities, or shared state.
+    //         *
+    //         * @returns An object whose properties will be merged into the server instance.
+    //         * @example
+    //         * // Example of an extension injecting a logger property
+    //         * injectProperties() {
+    //         *     return {
+    //         *         newProperty: 'Hello, world!'
+    //         *     };
+    //         * }
+    //         *
+    //         * // The injected property can be accessed in other hooks:
+    //         * onRequest({ server }) {
+    //         *     console.log(server.newProperty); // Output: 'Hello, world!'            
+    //         * }
+    //     */
     injectProperties?(server: Server<TInjected> & TInjected): Partial<TInjected>;
     onStart?(ctx: OnStartType): void;
     onRequest?(ctx: OnRequestType): void;

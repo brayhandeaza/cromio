@@ -19,8 +19,8 @@ export type TriggerHandlerType<TInjected extends object = {}> = {
 
 export type ExtensionType<TInjected extends object = any> = TriggerHandlerType<TInjected>
 
-export type MiddlewareType<TInjected extends object = any> = TriggerHandlerType<TInjected> & {
+export type OnTriggerType<TInjected extends object = any> = TriggerHandlerType<TInjected> & {
     reply: (data: any, code?: number) => void
 }
 
-export type MiddlewareCallback = (payload: MiddlewareType) => any;
+export type MiddlewareCallback = (payload: OnTriggerType) => any;
