@@ -1,4 +1,4 @@
-import { ClientFromServerType} from '.';
+import { ClientFromServerType } from '.';
 
 export * from "./client";
 export * from "./middleware";
@@ -7,8 +7,10 @@ export * from "./extensions";
 export type EncodingType = "utf-8" | "buffer" | "json" | "base64" | "hex" | "ascii";
 
 export type ResponseType = {
-    error?: JSON,
-    info: {
+    error?: {
+        message: string
+    }
+    info?: {
         loadBalancerStrategy: string
         server: {
             url: string
@@ -19,9 +21,8 @@ export type ResponseType = {
             time: number,
         }
     },
-    data: JSON | null
+    data: any
 }
-
 
 
 export type RequestErrorType = {

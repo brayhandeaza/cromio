@@ -1,4 +1,4 @@
-import { ClientFromServerType, CredentialsType, ServerExtension, TriggerCallback, TriggerDefinitionType } from ".";
+import { ClientFromServerType, CredentialsType, ServerExtension, ClientTypes, TriggerCallback, TriggerDefinitionType } from ".";
 import { Server } from "../core";
 import { MiddlewareCallback } from "./middleware";
 
@@ -38,26 +38,42 @@ type ServerExtensionsType<TInjected extends object = any> = TInjected & {
 };
 
 /**
-    * This type includes both core methods and any injected properties from extensions (`TInjected`).
-    * @template TInjected - The type of properties injected by extensions via `injectProperties()`. Defaults to `any`.    
-    * @property request.trigger - The name of the trigger invoked by the client.
-    * @property request.credentials - Client credentials associated with the request.
-    * @property request.payload - The payload of the request.
-    * @property server - The server instance, including core methods and injected properties.
-    *
-    * @example
-    * onRequest({ request, server }) {
-    *     console.log(server.newProperty); // Output: 'Hello, world!' 
-    * }
+ * `OnRequestType` represents the data available when the server processes an incoming request from a client.
+ * It includes the request context, server instance, and response object. The server instance includes both core methods and any properties injected by extensions (`TInjected`).
+ *
+ * @template TInjected - The type of properties injected by extensions via `injectProperties()`. Defaults to `any`.
+ *
+ * @property `request.trigger` - The name of the trigger invoked by the client.
+ * @property `request.client` - Client credentials associated with the request.
+ * @property `request.payload` - The payload of the request.
+ * @property `server` - The server instance, including core methods and any injected properties.
+ * @property `response.status` - The HTTP-like status code of the response.
+ * @property `response.performance.size` - The size of the response payload (in bytes).
+ * @property `response.performance.time` - The time taken to process the request (in milliseconds).
+ * @property `response.data` - The response payload, or `null` if no data is returned.
+ *
+ * @example
+ * onRequest({ request, server, response }: OnRequestType<{ newProperty: string }>) {
+ *     console.log(server.newProperty);
+ * }
  */
-export type OnRequestType<TInjected extends object = any> = {
+export type OnRequestEndType<TInjected extends object = any> = {
     request: {
         trigger: string;
-        credentials: CredentialsType;
+        client: CredentialsType;
         payload: any;
     };
     server: ServerExtensionsType<TInjected> & TInjected;
+    response: {
+        status: number;
+        performance: {
+            size: number;
+            time: number;
+        };
+        data: JSON | null;
+    };
 };
+
 
 /**
  * Context passed to `onStart` hooks.
@@ -70,7 +86,8 @@ export type OnRequestType<TInjected extends object = any> = {
  *     server.newProperty('Hello, world!'); // Output: 'Hello, world!'
  * }
  */
-export type OnStartType<TInjected extends object = any> = TInjected & ServerExtensionsType
+// export type OnStartType<TInjected extends object = any> = TInjected & ServerExtensionsType
+export type OnStartType<TInjected extends object> = Server<TInjected> & TInjected
 
 /**
  * OnErrorType represents the server instance and the error that occurred.
@@ -85,7 +102,38 @@ export type OnStartType<TInjected extends object = any> = TInjected & ServerExte
  * }
  */
 export type OnErrorType<TInjected extends object = any> = {
-    server: ServerExtensionsType<TInjected> & TInjected;
-    error: Error;
+    request: {
+        client: ClientTypes
+        trigger: string;
+        payload: any
+    }
+    server: ServerExtensionsType<TInjected> & TInjected & Server
+    error: Error
+}
+
+/**
+ * `OnRequestBeginType` type represents the data available when the server begins processing an incoming request from a client.
+ * It provides access to both the incoming request context and the server instance, including any properties injected by extensions (`TInjected`).
+ *
+ * @template TInjected - The type of properties injected by extensions via `injectProperties()`. Defaults to `any`.
+ *
+ * @property request.client - The client information about who sent the request.
+ * @property request.trigger - The name of the trigger invoked by the client.
+ * @property request.payload - The payload of the request.
+ * @property server - The server instance, including core methods and any injected properties.
+ *
+ * @example
+ * onRequestBegin({ server }: OnRequestBeginType<{ newProperty: string }>) {
+ *     console.log(server.newProperty); // Output: 'Hello, world!'
+ * }
+ */
+export type OnRequestBeginType<TInjected extends object = any> = {
+    request: {
+        client: ClientTypes;
+        trigger: string;
+        payload: any;
+    };
+    server: ServerExtensionsType<TInjected> & TInjected & Server;
 };
+
 

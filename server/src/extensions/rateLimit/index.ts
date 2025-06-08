@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { OnRequestType, ServerExtension } from '../../types';
+import { OnRequestEndType, ServerExtension } from '../../types';
 import { RateLimitBucket, RateLimiter, RateLimitOptionsType } from './utils';
 export type { RateLimitOptionsType } from './utils';
 
@@ -48,9 +48,9 @@ export const requestRateLimiter = ({ limit = 100, interval = 60000 }: RateLimitO
                 },
             };
         },
-        onRequest({ request, server }: OnRequestType<{ rateLimiter: RateLimiter }>) {
+        onRequestEnd({ request, server }: OnRequestEndType<{ rateLimiter: RateLimiter }>) {
             try {
-                const ip = request.credentials.ip;
+                const ip = request.client.ip;
                 const allowed = server.rateLimiter.check(ip);
                 if (!allowed)
                     throw new Error(JSON.stringify([{

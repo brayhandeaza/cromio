@@ -11,8 +11,9 @@ export class Extensions<TInjected extends object> {
 
     triggerHook(name: string, context: any = {}) {
         for (const ext of this.extensions) {
-            if (ext[name as keyof typeof ext]) {
-                ext[name as keyof typeof ext]!({ ...context });
+            const hook = ext[name as keyof typeof ext];
+            if (typeof hook === 'function') {
+                hook({ ...context });
             }
         }
     }

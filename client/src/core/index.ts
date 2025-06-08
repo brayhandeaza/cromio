@@ -13,6 +13,7 @@ import { chain, Readable } from 'stream-chain';
 
 export class Client<TInjected extends object = {}> {
     private servers: ServersType[] = [];
+    private server: ServersType & { index: number };
     private activeRequests: Map<number, number> = new Map();
     private latencies: Map<number, number[]> = new Map();
     private TIMEOUT = 5000;
@@ -26,6 +27,7 @@ export class Client<TInjected extends object = {}> {
         this.loadBalancerStrategy = loadBalancerStrategy
         this.showRequestInfo = showRequestInfo
         this.extensions = new Extensions();
+        this.server = { ...servers[0], index: 0 }; // Initialize with the first server and its index
 
         servers.forEach((server, index) => {
             this.servers.push(server);
@@ -161,11 +163,10 @@ export class Client<TInjected extends object = {}> {
         });
     }
 
-
     public async trigger(trigger: string, payload: any): Promise<ResponseType> {
+        const { server, index } = this.getNextClient();
         try {
             const start = performance.now();
-            const { server, index } = this.getNextClient();
             const credentials = server.credentials;
 
             const data = {
@@ -188,10 +189,10 @@ export class Client<TInjected extends object = {}> {
                 request
             })
             const message = zlib.gzipSync(JSON.stringify(data))
-            const { body, statusCode, headers } = await this.client({ server, request }).post(server.url, {
+            const { body, statusCode } = await this.client({ server, request }).post(server.url, {
                 json: { message: message.toString('base64') },
                 responseType: 'buffer',
-            });
+            })
 
             const response = zlib.gunzipSync(body).toString('utf8');
             const end = performance.now();
@@ -254,21 +255,44 @@ export class Client<TInjected extends object = {}> {
             };
 
         } catch (err: any) {
-            console.log({ trigger: err.message });
+            // 👇 Custom network error handling
+            if (err.name === 'RequestError' || err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
+                const friendlyMessage = `🚫 Unable to reach server at '${server.url}'. Make sure the server is running and reachable.`;
 
+                this.extensions.triggerHook('onError', {
+                    client: this,
+                    error: new Error(friendlyMessage),
+                });
+
+                return {
+                    data: null,
+                    error: {
+                        message: friendlyMessage,
+                    },
+                };
+            }
+
+            // 👇 Fallback generic error
             this.extensions.triggerHook('onError', {
                 client: this,
                 error: new Error(err.message),
-            })
-            throw err.message
+            });
+
+            return {
+                data: null,
+                error: {
+                    message: err.message ?? 'Unknown error',
+                }
+            };
         }
     }
 
     public triggerStream(trigger: string, payload: any, onData?: (data: any | null, error: Error | null, done: boolean) => void): void {
         const { server, index } = this.getNextClient();
         const start = performance.now();
+        const request = { server, trigger, payload };
 
-        const request = { server, trigger, payload }
+        this.server = { ...server, index };
         this.extensions.triggerHook('onRequestBegin', {
             request,
             client: this,
@@ -290,146 +314,237 @@ export class Client<TInjected extends object = {}> {
             })
         );
 
-        const stream = this.client({ server, request }).stream.post(server.url, {
-            json: { message: message.toString('base64') },
-        });
-
-        const gunzip = createGunzip();
-        const jsonParser = parser();
-        const streamObj = streamObject();
-
+        let hasError = false;
+        let isDoneEmitted = false;
         let allData: any[] = [];
         let bytes = 0;
 
+        const emitDone = (finalData: any) => {
+            if (isDoneEmitted) return;
+            isDoneEmitted = true;
+
+            if (onData) onData(null, null, true);
+
+            fireOnRequestEnd(finalData);
+        };
+
         const handleError = (err: Error) => {
+            if (hasError) return;
+            hasError = true;
+
             this.extensions.triggerHook('onError', {
                 client: this,
                 error: err,
-            })
+            });
 
             if (onData) onData(null, err, false);
+
+            // Also emit done after error to make caller happy:
+            emitDone(null);
         };
 
-        stream.on('error', handleError);
-        gunzip.on('error', handleError);
-        jsonParser.on('error', handleError);
-        streamObj.on('error', handleError);
+        const fireOnRequestEnd = (finalData: any) => {
+            const end = performance.now();
+            const fullResponse = { data: finalData };
+            bytes = Buffer.byteLength(JSON.stringify(fullResponse));
 
+            this.extensions.triggerHook('onRequestEnd', {
+                request: {
+                    server,
+                    trigger,
+                    payload,
+                },
+                response: {
+                    status: 200,
+                    info: {
+                        loadBalancerStrategy: this.loadBalancerStrategy,
+                        server: {
+                            url: server.url,
+                            requests: this.activeRequests.get(index)!,
+                        },
+                        performance: {
+                            size: bytes,
+                            time: +Number(end - start).toFixed(0),
+                        },
+                    },
+                    ...fullResponse,
+                },
+                client: {
+                    ...this,
+                    servers: this.servers,
+                    activeRequests: this.activeRequests,
+                    latencies: this.latencies,
+                    extensions: this.extensions,
+                    showRequestInfo: this.showRequestInfo,
+                    loadBalancerStrategy: this.loadBalancerStrategy,
+                },
+            });
+        };
 
-        stream.pipe(gunzip).pipe(jsonParser).pipe(streamObj);
+        try {
+            const stream = this.client({ server, request }).stream.post(server.url, {
+                json: { message: message.toString('base64') },
+            });
 
-        streamObj.on('data', ({ key, value }) => {
-            if (key === 'data') {
-                if (Array.isArray(value)) {
-                    const arraySource = chain([
-                        Readable.from(JSON.stringify(value)),
-                        parser(),
-                        streamArray(),
-                    ]);
+            const gunzip = createGunzip();
+            const jsonParser = parser();
+            const streamObj = streamObject();
 
-                    arraySource.on('data', ({ value }) => {
+            stream
+                .on('error', handleError)
+                .pipe(gunzip)
+                .on('error', handleError)
+                .pipe(jsonParser)
+                .on('error', handleError)
+                .pipe(streamObj)
+                .on('error', handleError);
+
+            streamObj.on('data', ({ key, value }) => {
+                if (key === 'data') {
+                    if (Array.isArray(value)) {
+                        const arraySource = chain([
+                            Readable.from(JSON.stringify(value)),
+                            parser(),
+                            streamArray(),
+                        ]);
+
+                        arraySource.on('data', ({ value }) => {
+                            allData.push(value);
+                            if (onData) onData(value, null, false);
+                        });
+
+                        arraySource.on('end', () => {
+                            emitDone(allData);
+                        });
+
+                        arraySource.on('error', handleError);
+                    } else {
                         allData.push(value);
                         if (onData) onData(value, null, false);
-                    });
-
-                    arraySource.on('end', () => {
-                        const end = performance.now();
-                        const fullResponse = { data: allData };
-                        const serialized = JSON.stringify(fullResponse);
-
-                        bytes = Buffer.byteLength(serialized);
-                        if (onData) onData(allData[allData.length - 1], null, true);
-
-                        // Fire onRequestEnd
-                        this.extensions.triggerHook('onRequestEnd', {
-                            request: {
-                                server,
-                                trigger,
-                                payload,
-                            },
-                            response: {
-                                status: 200,
-                                info: {
-                                    loadBalancerStrategy: this.loadBalancerStrategy,
-                                    server: {
-                                        url: server.url,
-                                        requests: this.activeRequests.get(index)!,
-                                    },
-                                    performance: {
-                                        size: bytes,
-                                        time: +Number(end - start).toFixed(0),
-                                    }
-                                },
-                                ...fullResponse,
-                            },
-                            client: {
-                                ...this,
-                                servers: this.servers,
-                                activeRequests: this.activeRequests,
-                                latencies: this.latencies,
-                                extensions: this.extensions,
-                                showRequestInfo: this.showRequestInfo,
-                                loadBalancerStrategy: this.loadBalancerStrategy,
-                            },
-                        });
-                    });
-
-                    arraySource.on('error', handleError);
-                } else {
-                    allData.push(value);
-                    const end = performance.now();
-                    const fullResponse = { data: value };
-
-                    bytes = Buffer.byteLength(JSON.stringify(fullResponse));
-                    if (onData) onData(value, null, true);
-
-                    // Fire onRequestEnd
-                    this.extensions.triggerHook('onRequestEnd', {
-                        request: {
-                            server,
-                            trigger,
-                            payload,
-                        },
-                        response: {
-                            status: 200,
-                            info: {
-                                loadBalancerStrategy: this.loadBalancerStrategy,
-                                server: {
-                                    url: server.url,
-                                    requests: this.activeRequests.get(index)!,
-                                },
-                                performance: {
-                                    size: bytes,
-                                    time: +Number(end - start).toFixed(0),
-                                }
-                            },
-                            ...fullResponse,
-                        },
-                        client: {
-                            ...this,
-                            servers: this.servers,
-                            activeRequests: this.activeRequests,
-                            latencies: this.latencies,
-                            extensions: this.extensions,
-                            showRequestInfo: this.showRequestInfo,
-                            loadBalancerStrategy: this.loadBalancerStrategy,
-                        },
-                    });
+                        emitDone(value);
+                    }
                 }
-            }
-        });
+            });
 
-        streamObj.on('end', () => {
-            // If nothing was streamed and we never reached `on('data')`
-            if (allData.length === 0 && onData) {
-                const fullResponse = {
-                    data: null,
-                    error: null,
-                };
+            streamObj.on('end', () => {
+                if (hasError) return;
 
-                bytes = Buffer.byteLength(JSON.stringify(fullResponse));
-                onData(null, null, true);
-            }
-        });
+                // If no data was streamed:
+                if (allData.length === 0) {
+                    emitDone(null);
+                }
+                // If arraySource already emitted done, emitDone() will be guarded
+            });
+
+        } catch (err: any) {
+            const friendlyMessage = err.code
+                ? `Server ${server.url} is not available (${err.code})`
+                : err.message ?? 'Unknown error';
+
+            this.extensions.triggerHook('onError', {
+                client: this,
+                error: new Error(friendlyMessage),
+            });
+
+            if (onData) onData(null, new Error(friendlyMessage), false);
+
+            // Always emit done in error case:
+            if (!isDoneEmitted) emitDone(null);
+        }
     }
+
+    public async triggerStreamAsync(trigger: string, payload: any): Promise<ResponseType> {
+        let allData: any[] = [];
+        let receivedSingleObject: any = undefined;
+        const start = performance.now();
+
+        try {
+            await new Promise<void>((resolve, reject) => {
+                this.triggerStream(trigger, payload, (data, error, done) => {
+                    if (error) {
+                        this.extensions.triggerHook('onError', {
+                            client: this,
+                            error,
+                        });
+                        reject(error);
+                        return;
+                    }
+
+                    if (data !== null && data !== undefined) {
+                        if (Array.isArray(data)) {
+                            // This case happens if your server streams a whole array in 1 message
+                            allData.push(...data);
+                        } else {
+                            // Could be object OR single stream item
+                            if (typeof data === 'object' && allData.length === 0 && receivedSingleObject === undefined) {
+                                receivedSingleObject = data;
+                            } else {
+                                allData.push(data);
+                            }
+                        }
+                    }
+
+                    if (done) {
+                        resolve();
+                    }
+                });
+            });
+        } catch (error) {
+            this.extensions.triggerHook('onError', {
+                client: this,
+                error: error instanceof Error ? error : new Error(String(error)),
+            });
+            throw error;
+        }
+
+        const end = performance.now();
+        if (allData.length > 0) {
+            return {
+                info: {
+                    loadBalancerStrategy: this.loadBalancerStrategy,
+                    server: {
+                        url: this.server.url,
+                        requests: this.activeRequests.get(this.server.index)!
+                    },
+                    performance: {
+                        size: Buffer.byteLength(JSON.stringify(allData)),
+                        time: +Number(end - start).toFixed(0),
+                    },
+
+                },
+                data: allData,
+            };
+        } else if (receivedSingleObject !== undefined) {
+            return {
+                info: {
+                    loadBalancerStrategy: this.loadBalancerStrategy,
+                    server: {
+                        url: this.server.url,
+                        requests: this.activeRequests.get(this.server.index)!
+                    },
+                    performance: {
+                        size: Buffer.byteLength(JSON.stringify(receivedSingleObject)),
+                        time: +Number(end - start).toFixed(0),
+                    },
+
+                },
+                data: receivedSingleObject,
+            };
+        } else {
+            return {
+                info: {
+                    loadBalancerStrategy: this.loadBalancerStrategy,
+                    server: {
+                        url: this.server.url,
+                        requests: this.activeRequests.get(this.server.index)!
+                    },
+                    performance: {
+                        size: 0,
+                        time: +Number(end - start).toFixed(0),
+                    },
+                },
+                data: null
+            };
+        }
+    };
 }

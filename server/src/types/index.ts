@@ -23,3 +23,9 @@ export type ResponseType = {
 }
 
 
+export type ClientTypes = {
+    secretKey: string;
+    language: "nodejs" | "python";
+    roles?: string[] | undefined;
+    ip: string;
+}

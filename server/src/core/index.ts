@@ -8,6 +8,7 @@ import { ClientMessageDataType } from '../auth/server';
 import { z } from 'zod';
 import stringify from 'streaming-json-stringify';
 import { createGzip } from 'zlib';
+import { performance } from 'perf_hooks';
 
 export class Server<TInjected extends object = {}> {
     private extensions: Extensions<TInjected>;
@@ -47,6 +48,7 @@ export class Server<TInjected extends object = {}> {
 
         fastify.post('/', async (request, reply) => {
             try {
+                const start = performance.now();
                 const bodySchema = z.object({ message: z.string() });
                 const { message } = await bodySchema.parseAsync(request.body);
 
@@ -54,52 +56,68 @@ export class Server<TInjected extends object = {}> {
                 const { trigger, payload, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
 
                 const auth = this.verifyClient(credentials);
-                if (!auth.passed) {
-                    return reply
-                        .status(500)
-                        .send(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
-                }
-
-                const handler = this.triggers.get(trigger);
-                if (!handler) {
-                    const message = `🚫 Trigger '${trigger}' is not registered on the server`;
-                    this.extensions.triggerHook("onError", { server: this, error: new Error(message) });
-                    return reply
-                        .status(500)
-                        .send(zlib.gzipSync(JSON.stringify({ error: { message } })));
-                }
-
-                await new Promise((resolve, reject) => {
-                    handler(payload, credentials, (data: any, code: number = 200) => {
-                        try {
-                            const safeData = data === undefined ? null : { data };
-                            this.extensions.triggerHook("onRequest", {
-                                server: this,
-                                request: { trigger, payload, credentials: auth.client },
-                            });
-                            const message = zlib.gzipSync(JSON.stringify(safeData));
-                            reply.status(code).send(message);
-                            resolve(null);
-                        } catch (err) {
-                            reject(err);
-                        }
+                if (auth.passed) {
+                    this.extensions.triggerHook("onRequestBegin", {
+                        request: { trigger, payload, credentials },
+                        server: this
                     });
-                });
+
+                    const handler = this.triggers.get(trigger);
+                    if (!handler) {
+                        const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+                        this.extensions.triggerHook("onError", {
+                            server: this,
+                            error: new Error(message),
+                            request: { trigger, payload, client: auth.client }
+                        });
+                        return reply
+                            .status(500)
+                            .send(zlib.gzipSync(JSON.stringify({ error: { message } })));
+                    }
+
+                    await new Promise((resolve, reject) => {
+                        handler(payload, credentials, (data: any, code: number = 200) => {
+                            try {
+                                const time = performance.now() - start;
+                                const safeData = data === undefined ? null : { data };
+                                this.extensions.triggerHook("onRequestEnd", {
+                                    server: this,
+                                    request: { trigger, payload, client: auth.client },
+                                    response: {
+                                        status: code,
+                                        ...safeData,
+                                        performance: {
+                                            size: Buffer.byteLength(JSON.stringify(safeData)),
+                                            time
+                                        }
+                                    }
+                                });
+                                const message = zlib.gzipSync(JSON.stringify(safeData));
+                                reply.status(code).send(message);
+                                resolve(null);
+                            } catch (err) {
+                                this.extensions.triggerHook("onError", {
+                                    request: { trigger, payload, credentials },
+                                    server: this,
+                                    error: err,
+                                });
+                                reject(err);
+                            }
+                        });
+                    });
+
+                } else {
+                    // 🔥 FIXED THIS PART
+                    this.extensions.triggerHook("onError", {
+                        server: this,
+                        error: new Error(auth.message),
+                        request: { trigger: null, payload: null, client: null }
+                    });
+                    return reply.send(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
+                }
 
             } catch (error: any) {
-                let errMessage = "Internal server error";
-                try {
-                    errMessage = JSON.parse(error.message)[0]?.message ?? errMessage;
-                } catch {
-                    errMessage = error.message ?? errMessage;
-                }
-
-                this.extensions.triggerHook("onError", {
-                    server: this,
-                    error: new Error(errMessage),
-                });
-
-                reply.status(500).send(zlib.gzipSync(JSON.stringify({ error: { message: errMessage } })));
+                reply.status(500).send(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
             }
         });
 
@@ -112,62 +130,60 @@ export class Server<TInjected extends object = {}> {
                 const { trigger, payload, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
 
                 const auth = this.verifyClient(credentials);
-                if (!auth.passed) {
-                    reply
-                        .status(500)
-                        .header('Content-Encoding', 'gzip')
-                        .header('Content-Type', 'application/json');
+                if (auth.passed) {
+                    const handler = this.triggers.get(trigger);
+                    if (!handler) {
+                        const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+                        this.extensions.triggerHook("onError", { server: this, error: new Error(message) });
+                        reply
+                            .status(500)
+                            .header('Content-Encoding', 'gzip')
+                            .header('Content-Type', 'application/json');
+                        return reply.send(zlib.gzipSync(JSON.stringify({ error: { message } })));
+                    }
+
+                    // Use a Promise wrapper so we can await the callback pattern
+                    const dataToStream: { safeData: any; code: number } = await new Promise((resolve, reject) => {
+                        handler(payload, credentials, (data: any, code: number = 200) => {
+                            try {
+                                const safeData = data === undefined ? null : { data };
+                                this.extensions.triggerHook("onRequest", {
+                                    server: this,
+                                    request: { trigger, payload, credentials: auth.client },
+                                });
+                                resolve({ safeData, code });
+                            } catch (err) {
+                                reject(err);
+                            }
+                        });
+                    });
+
+                    const { safeData, code } = dataToStream;
+
+                    // Set headers for streaming gzip + JSON
+                    reply.status(code);
+                    reply.header('Content-Encoding', 'gzip');
+                    reply.header('Content-Type', 'application/json');
+
+                    // Create JSON stringify stream for the data
+                    const jsonStream = stringify(safeData);
+
+                    // Create gzip stream
+                    const gzip = createGzip();
+
+                    // Pipe JSON string stream through gzip into reply raw response
+                    jsonStream.pipe(gzip).pipe(reply.raw);
+
+                    // Return a promise that resolves once the streaming is done
+                    await new Promise((resolve, reject) => {
+                        reply.raw.on('finish', resolve);
+                        reply.raw.on('error', reject);
+                    });
+
+                } else {
+                    reply.header('Content-Encoding', 'gzip')
                     return reply.send(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
                 }
-
-                const handler = this.triggers.get(trigger);
-                if (!handler) {
-                    const message = `🚫 Trigger '${trigger}' is not registered on the server`;
-                    this.extensions.triggerHook("onError", { server: this, error: new Error(message) });
-                    reply
-                        .status(500)
-                        .header('Content-Encoding', 'gzip')
-                        .header('Content-Type', 'application/json');
-                    return reply.send(zlib.gzipSync(JSON.stringify({ error: { message } })));
-                }
-
-                // Use a Promise wrapper so we can await the callback pattern
-                const dataToStream: { safeData: any; code: number } = await new Promise((resolve, reject) => {
-                    handler(payload, credentials, (data: any, code: number = 200) => {
-                        try {
-                            const safeData = data === undefined ? null : { data };
-                            this.extensions.triggerHook("onRequest", {
-                                server: this,
-                                request: { trigger, payload, credentials: auth.client },
-                            });
-                            resolve({ safeData, code });
-                        } catch (err) {
-                            reject(err);
-                        }
-                    });
-                });
-
-                const { safeData, code } = dataToStream;
-
-                // Set headers for streaming gzip + JSON
-                reply.status(code);
-                reply.header('Content-Encoding', 'gzip');
-                reply.header('Content-Type', 'application/json');
-
-                // Create JSON stringify stream for the data
-                const jsonStream = stringify(safeData);
-
-                // Create gzip stream
-                const gzip = createGzip();
-
-                // Pipe JSON string stream through gzip into reply raw response
-                jsonStream.pipe(gzip).pipe(reply.raw);
-
-                // Return a promise that resolves once the streaming is done
-                await new Promise((resolve, reject) => {
-                    reply.raw.on('finish', resolve);
-                    reply.raw.on('error', reject);
-                });
 
             } catch (error: any) {
                 let errMessage = "Internal server error";
@@ -188,14 +204,7 @@ export class Server<TInjected extends object = {}> {
         });
 
         fastify.listen({ port: this.port }, (err, address) => {
-            if (err) {
-                this.extensions.triggerHook("onError", {
-                    server: this,
-                    error: new Error(err.message),
-                });
-
-                throw err
-            };
+            if (err) throw err
 
             if (callback) callback(address.replaceAll("[::1]", `${ip()}`));
             this.extensions.triggerHook("onStart", {
@@ -204,7 +213,7 @@ export class Server<TInjected extends object = {}> {
         });
     }
 
-    public addExtension<TNew extends {}>(...exts: ServerExtension<TNew>[]): asserts this is Server<TInjected & TNew> & TNew {
+    public addExtension<TNew extends {}>(...exts: ServerExtension<TNew>[]) {
         exts.forEach(ext => {
             if (ext.injectProperties) {
                 const injected = ext.injectProperties(this as any); // We assert `any` here internally
@@ -222,7 +231,6 @@ export class Server<TInjected extends object = {}> {
     public addGlobalMiddleware(...callbacks: TriggerCallback[]) {
         this.globalMiddlewares.push(...callbacks);
     }
-
 
     public registerTriggerDefinition({ triggers }: { triggers: TriggerDefinitionType }) {
         triggers.forEach((callback, name) => {
@@ -347,7 +355,11 @@ export class Server<TInjected extends object = {}> {
                     passed: false,
                     message: `🚫 Invalid IP Address: Expected '${client.ip}', but received '${credentials.ip}'`,
                 };
-
+            case client?.secretKey !== credentials.secretKey:
+                return {
+                    passed: false,
+                    message: `🚫 Authentication Failed: Client at ip=${credentials.ip} provided an invalid secretKey`,
+                };
             default:
                 return {
                     passed: true,
