@@ -10,6 +10,7 @@ import { parser } from 'stream-json';
 import { streamArray } from 'stream-json/streamers/StreamArray';
 import { streamObject } from 'stream-json/streamers/StreamObject';
 import { chain, Readable } from 'stream-chain';
+import { EventEmitter } from 'events';
 
 export class Client<TInjected extends object = {}> {
     private servers: ServersType[] = [];
@@ -298,7 +299,8 @@ export class Client<TInjected extends object = {}> {
         }
     }
 
-    public triggerStream(trigger: string, payload: any, onData?: (data: any | null, error: Error | null, done: boolean) => void): void {
+
+    public async triggerStream(trigger: string, payload: any, onData?: (data: any | null, error: Error | null, done: boolean) => void) {
         const { server, index } = this.getNextClient();
         const start = performance.now();
         const request = { server, trigger, payload };
@@ -333,11 +335,14 @@ export class Client<TInjected extends object = {}> {
         let allData: any[] = [];
         let bytes = 0;
 
+        const emitter = new EventEmitter();
+
         const emitDone = (finalData: any) => {
             if (isDoneEmitted) return;
             isDoneEmitted = true;
 
             if (onData) onData(null, null, true);
+            emitter.emit('stream', null, null, true);
 
             fireOnRequestEnd(finalData);
         };
@@ -352,8 +357,8 @@ export class Client<TInjected extends object = {}> {
             });
 
             if (onData) onData(null, err, false);
+            emitter.emit('stream', null, err, false);
 
-            // Also emit done after error to make caller happy:
             emitDone(null);
         };
 
@@ -425,6 +430,7 @@ export class Client<TInjected extends object = {}> {
                         arraySource.on('data', ({ value }) => {
                             allData.push(value);
                             if (onData) onData(value, null, false);
+                            emitter.emit('stream', value, null, false);
                         });
 
                         arraySource.on('end', () => {
@@ -435,6 +441,7 @@ export class Client<TInjected extends object = {}> {
                     } else {
                         allData.push(value);
                         if (onData) onData(value, null, false);
+                        emitter.emit('stream', value, null, false);
                         emitDone(value);
                     }
                 }
@@ -443,13 +450,10 @@ export class Client<TInjected extends object = {}> {
             streamObj.on('end', () => {
                 if (hasError) return;
 
-                // If no data was streamed:
                 if (allData.length === 0) {
                     emitDone(null);
                 }
-                // If arraySource already emitted done, emitDone() will be guarded
             });
-
         } catch (err: any) {
             const friendlyMessage = err.code
                 ? `Server ${server.url} is not available (${err.code})`
@@ -461,13 +465,24 @@ export class Client<TInjected extends object = {}> {
             });
 
             if (onData) onData(null, new Error(friendlyMessage), false);
+            emitter.emit('stream', null, new Error(friendlyMessage), false);
 
-            // Always emit done in error case:
             if (!isDoneEmitted) emitDone(null);
         }
+
+        // Prepare controller and return it wrapped in Promise.resolve
+        const controller = {
+            on: (cb: (data: any | null, error: Error | null, done: boolean) => void) => {
+                emitter.on('stream', cb);
+                return controller;
+            },
+        };
+
+        return Promise.resolve(controller);
     }
 
-    public async triggerStreamAsync(trigger: string, payload: any): Promise<ResponseType> {
+
+    public async triggerStreamResolved(trigger: string, payload: any): Promise<ResponseType> {
         let allData: any[] = [];
         let receivedSingleObject: any = undefined;
         const start = performance.now();
