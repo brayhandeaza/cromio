@@ -35,7 +35,7 @@ export type ServerExtension<TInjected extends object = any> = {
     onError?(ctx: OnErrorType): void;
 
     onStop?(ctx: { server: Server<TInjected> & TInjected }): void;
-    // [key: string]: any;
+    [key: string]: any;
     name?: string
 };
 

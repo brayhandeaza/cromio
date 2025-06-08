@@ -83,7 +83,7 @@ export function prometheusMetrics(options: PrometheusMetricsOptions): ServerExte
             server.timer = timer
         },
         onRequestEnd({ request, response, server }: OnRequestEndType<{ timer: (_: { trigger: string; client: string; status: number }) => void }>) {
-            const { trigger, client } = request;
+            const { trigger } = request;
             if (!shouldTrackTrigger(trigger, options)) return;
 
             server.timer({

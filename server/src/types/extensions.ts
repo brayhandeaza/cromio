@@ -1,4 +1,4 @@
-import { ClientFromServerType, CredentialsType, ServerExtension, ClientTypes, TriggerCallback, TriggerDefinitionType } from ".";
+import { ClientFromServerType, CredentialsType, ServerExtension, ClientTypes, TriggerCallback, TriggerDefinitionType, TriggerHandler } from ".";
 import { Server } from "../core";
 import { MiddlewareCallback } from "./middleware";
 
@@ -30,6 +30,7 @@ import { MiddlewareCallback } from "./middleware";
 type ServerExtensionsType<TInjected extends object = any> = TInjected & {
     client: ClientFromServerType;
     clients: Map<string, ClientFromServerType>;
+    triggers: Set<string>;
     registerTriggerDefinition: (triggers: TriggerDefinitionType) => void;
     addTrigger(name: string, ...callbacks: MiddlewareCallback[]): void;
     addMiddleware(callback: MiddlewareCallback): void;

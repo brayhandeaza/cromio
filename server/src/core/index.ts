@@ -14,7 +14,8 @@ export class Server<TInjected extends object = {}> {
     private extensions: Extensions<TInjected>;
     private port: number;
     private logs: boolean;
-    private triggers = new Map<string, TriggerHandler>();
+    private triggerHandlers = new Map<string, TriggerHandler>();
+    public triggers: Set<string> = new Set();
     private globalMiddlewares: TriggerCallback[] = [];
     public clients = new Map<string, ClientFromServerType>();
 
@@ -62,7 +63,7 @@ export class Server<TInjected extends object = {}> {
                         server: this
                     });
 
-                    const handler = this.triggers.get(trigger);
+                    const handler = this.triggerHandlers.get(trigger);
                     if (!handler) {
                         const message = `🚫 Trigger '${trigger}' is not registered on the server`;
                         this.extensions.triggerHook("onError", {
@@ -131,7 +132,7 @@ export class Server<TInjected extends object = {}> {
 
                 const auth = this.verifyClient(credentials);
                 if (auth.passed) {
-                    const handler = this.triggers.get(trigger);
+                    const handler = this.triggerHandlers.get(trigger);
                     if (!handler) {
                         const message = `🚫 Trigger '${trigger}' is not registered on the server`;
                         this.extensions.triggerHook("onError", { server: this, error: new Error(message) });
@@ -234,12 +235,14 @@ export class Server<TInjected extends object = {}> {
 
     public registerTriggerDefinition({ triggers }: { triggers: TriggerDefinitionType }) {
         triggers.forEach((callback, name) => {
+            this.triggers.add(name);
             this.onTrigger(name, callback);
         })
     }
 
     public onTrigger(name: string, ...callbacks: MiddlewareCallback[]) {
-        this.triggers.set(name, async (payload, credentials, reply) => {
+        this.triggers.add(name);
+        this.triggerHandlers.set(name, async (payload, credentials, reply) => {
             let responseSent = false;
 
             const context: OnTriggerType = {
