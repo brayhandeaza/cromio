@@ -1,7 +1,7 @@
 import { ServerOptions, ServersType } from ".";
 import { LOAD_BALANCER } from "../constants";
 import { Client } from "../core";
-import { Extensions } from "../core/Extensions";
+import { Extensions } from "../core/extensions";
 
 
 export type ClientExtension<TInjected extends object = any> = {

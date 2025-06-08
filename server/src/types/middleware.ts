@@ -1,6 +1,6 @@
 import { ClientFromServerType, CredentialsType } from './client';
 import { TriggerCallback, TriggerHandler } from '.';
-import { Extensions } from '../core/Extensions';
+import { Extensions } from '../core/extensions';
 
 export type TriggerHandlerType<TInjected extends object = {}> = {
     trigger: string;

@@ -2,13 +2,14 @@ import zlib from 'zlib';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
 import { ClientFromServerType, TriggerCallback, ServerContructorType, TriggerDefinitionType, OnTriggerType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension } from '../types';
-import { Extensions } from './Extensions';
-import Fastify from 'fastify';
+import { Extensions } from './extensions';
+import Fastify, { FastifyReply } from 'fastify';
 import { ClientMessageDataType } from '../auth/server';
 import { z } from 'zod';
-import stringify from 'streaming-json-stringify';
 import { createGzip } from 'zlib';
 import { performance } from 'perf_hooks';
+import { PassThrough } from 'stream';
+
 
 export class Server<TInjected extends object = {}> {
     private extensions: Extensions<TInjected>;
@@ -28,7 +29,8 @@ export class Server<TInjected extends object = {}> {
         }
     }
 
-    constructor({ port = 1000, clients = [], logs = true, tls }: ServerContructorType) {
+    constructor(options?: ServerContructorType) {
+        const { port = 2000, clients = [], logs = true, tls } = options || {};
         this.port = port;
         this.logs = logs;
 
@@ -51,10 +53,10 @@ export class Server<TInjected extends object = {}> {
             try {
                 const start = performance.now();
                 const bodySchema = z.object({ message: z.string() });
-                const { message } = await bodySchema.parseAsync(request.body);
 
+                const { message } = await bodySchema.parseAsync(request.body);
                 const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
-                const { trigger, payload, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
+                const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
 
                 const auth = this.verifyClient(credentials);
                 if (auth.passed) {
@@ -77,10 +79,11 @@ export class Server<TInjected extends object = {}> {
                     }
 
                     await new Promise((resolve, reject) => {
-                        handler(payload, credentials, (data: any, code: number = 200) => {
+                        handler(payload, credentials, async (data: any, code: number = 200) => {
                             try {
                                 const time = performance.now() - start;
-                                const safeData = data === undefined ? null : { data };
+                                const safeData = data === undefined ? { data: null } : { data };
+
                                 this.extensions.triggerHook("onRequestEnd", {
                                     server: this,
                                     request: { trigger, payload, client: auth.client },
@@ -93,9 +96,17 @@ export class Server<TInjected extends object = {}> {
                                         }
                                     }
                                 });
-                                const message = zlib.gzipSync(JSON.stringify(safeData));
-                                reply.status(code).send(message);
-                                resolve(null);
+
+                                if (type === 'stream') {
+                                    await this.streamJsonData(reply, code, safeData);
+                                    resolve(null);
+
+                                } else {
+                                    const message = zlib.gzipSync(JSON.stringify(safeData));
+                                    reply.status(code).send(message);
+                                    resolve(null);
+                                }
+
                             } catch (err) {
                                 this.extensions.triggerHook("onError", {
                                     request: { trigger, payload, credentials },
@@ -106,6 +117,38 @@ export class Server<TInjected extends object = {}> {
                             }
                         });
                     });
+
+
+                    // await new Promise((resolve, reject) => {
+                    //     handler(payload, credentials, (data: any, code: number = 200) => {
+                    //         try {
+                    //             const time = performance.now() - start;
+                    //             const safeData = data === undefined ? null : { data };
+                    //             this.extensions.triggerHook("onRequestEnd", {
+                    //                 server: this,
+                    //                 request: { trigger, payload, client: auth.client },
+                    //                 response: {
+                    //                     status: code,
+                    //                     ...safeData,
+                    //                     performance: {
+                    //                         size: Buffer.byteLength(JSON.stringify(safeData)),
+                    //                         time
+                    //                     }
+                    //                 }
+                    //             });
+                    //             const message = zlib.gzipSync(JSON.stringify(safeData));
+                    //             reply.status(code).send(message);
+                    //             resolve(null);
+                    //         } catch (err) {
+                    //             this.extensions.triggerHook("onError", {
+                    //                 request: { trigger, payload, credentials },
+                    //                 server: this,
+                    //                 error: err,
+                    //             });
+                    //             reject(err);
+                    //         }
+                    //     });
+                    // });
 
                 } else {
                     // 🔥 FIXED THIS PART
@@ -122,87 +165,6 @@ export class Server<TInjected extends object = {}> {
             }
         });
 
-        fastify.post('/stream', async (request, reply) => {
-            try {
-                const bodySchema = z.object({ message: z.string() });
-                const { message } = await bodySchema.parseAsync(request.body);
-
-                const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
-                const { trigger, payload, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
-
-                const auth = this.verifyClient(credentials);
-                if (auth.passed) {
-                    const handler = this.triggerHandlers.get(trigger);
-                    if (!handler) {
-                        const message = `🚫 Trigger '${trigger}' is not registered on the server`;
-                        this.extensions.triggerHook("onError", { server: this, error: new Error(message) });
-                        reply
-                            .status(500)
-                            .header('Content-Encoding', 'gzip')
-                            .header('Content-Type', 'application/json');
-                        return reply.send(zlib.gzipSync(JSON.stringify({ error: { message } })));
-                    }
-
-                    // Use a Promise wrapper so we can await the callback pattern
-                    const dataToStream: { safeData: any; code: number } = await new Promise((resolve, reject) => {
-                        handler(payload, credentials, (data: any, code: number = 200) => {
-                            try {
-                                const safeData = data === undefined ? null : { data };
-                                this.extensions.triggerHook("onRequest", {
-                                    server: this,
-                                    request: { trigger, payload, credentials: auth.client },
-                                });
-                                resolve({ safeData, code });
-                            } catch (err) {
-                                reject(err);
-                            }
-                        });
-                    });
-
-                    const { safeData, code } = dataToStream;
-
-                    // Set headers for streaming gzip + JSON
-                    reply.status(code);
-                    reply.header('Content-Encoding', 'gzip');
-                    reply.header('Content-Type', 'application/json');
-
-                    // Create JSON stringify stream for the data
-                    const jsonStream = stringify(safeData);
-
-                    // Create gzip stream
-                    const gzip = createGzip();
-
-                    // Pipe JSON string stream through gzip into reply raw response
-                    jsonStream.pipe(gzip).pipe(reply.raw);
-
-                    // Return a promise that resolves once the streaming is done
-                    await new Promise((resolve, reject) => {
-                        reply.raw.on('finish', resolve);
-                        reply.raw.on('error', reject);
-                    });
-
-                } else {
-                    reply.header('Content-Encoding', 'gzip')
-                    return reply.send(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
-                }
-
-            } catch (error: any) {
-                let errMessage = "Internal server error";
-                try {
-                    errMessage = JSON.parse(error.message)[0]?.message ?? errMessage;
-                } catch {
-                    errMessage = error.message ?? errMessage;
-                }
-
-                this.extensions.triggerHook("onError", {
-                    server: this,
-                    error: new Error(errMessage),
-                });
-
-                reply.status(500).header('Content-Encoding', 'gzip').header('Content-Type', 'application/json');
-                reply.send(zlib.gzipSync(JSON.stringify({ error: { message: errMessage } })));
-            }
-        });
 
         fastify.listen({ port: this.port }, (err, address) => {
             if (err) throw err
@@ -213,6 +175,8 @@ export class Server<TInjected extends object = {}> {
             });
         });
     }
+
+
 
     public addExtension<TNew extends {}>(...exts: ServerExtension<TNew>[]) {
         exts.forEach(ext => {
@@ -269,6 +233,61 @@ export class Server<TInjected extends object = {}> {
                 // If nothing was returned and no reply called, send undefined explicitly
                 reply(result === undefined ? undefined : result);
             }
+        });
+    }
+
+    private streamJsonData(reply: FastifyReply, code: number, safeData: any) {
+        reply.status(code);
+        reply.header('Content-Encoding', 'gzip');
+        reply.header('Content-Type', 'application/json');
+
+        const stream = new PassThrough();
+        const gzip = createGzip();
+
+        stream.pipe(gzip).pipe(reply.raw);
+
+        // Helper to safely write a chunk and return a promise to await drain if needed
+        const writeChunk = (chunk: string) =>
+            new Promise<void>((resolve, reject) => {
+                if (!stream.write(chunk)) {
+                    stream.once('drain', resolve);
+                } else {
+                    resolve();
+                }
+            });
+
+        (async () => {
+            if (safeData === null || typeof safeData !== 'object') {
+                // Primitive or null: just write directly
+                await writeChunk(JSON.stringify(safeData));
+            } else if (Array.isArray(safeData)) {
+                // Stream array: [item1, item2, ...]
+                await writeChunk('[');
+                for (let i = 0; i < safeData.length; i++) {
+                    if (i > 0) await writeChunk(',');
+                    await writeChunk(JSON.stringify(safeData[i]));
+                }
+                await writeChunk(']');
+            } else {
+                // Stream object: {"key1": value1, "key2": value2, ...}
+                const keys = Object.keys(safeData);
+                await writeChunk('{');
+                for (let i = 0; i < keys.length; i++) {
+                    if (i > 0) await writeChunk(',');
+                    const key = keys[i];
+                    const value = safeData[key];
+                    await writeChunk(JSON.stringify(key) + ':' + JSON.stringify(value));
+                }
+                await writeChunk('}');
+            }
+            stream.end();
+        })().catch(err => {
+            stream.destroy(err);
+        });
+
+        return new Promise((resolve, reject) => {
+            reply.raw.on('finish', resolve);
+            reply.raw.on('error', reject);
         });
     }
 
@@ -336,6 +355,9 @@ export class Server<TInjected extends object = {}> {
     }
 
     private verifyClient(credentials: ClientFromServerType): { passed: boolean, message: string, client?: ClientFromServerType } {
+        if (this.clients.size < 1)
+            return { passed: true, message: `` }
+
         const client = this.clients.get(credentials.secretKey);
         switch (true) {
             case !credentials.secretKey:

@@ -5,7 +5,7 @@ import { ip } from 'address';
 import { ClientConfig, ServersType, ResponseType, ClientExtension } from '../types';
 import { ALLOW_MESSAGE, LOAD_BALANCER, LOCALHOST, PLATFORM, } from '../constants';
 import { performance } from "perf_hooks"
-import { Extensions } from './Extensions';
+import { Extensions } from './extensions';
 import { parser } from 'stream-json';
 import { streamArray } from 'stream-json/streamers/StreamArray';
 import { streamObject } from 'stream-json/streamers/StreamObject';
@@ -27,10 +27,15 @@ export class Client<TInjected extends object = {}> {
         this.loadBalancerStrategy = loadBalancerStrategy
         this.showRequestInfo = showRequestInfo
         this.extensions = new Extensions();
-        this.server = { ...servers[0], index: 0 }; // Initialize with the first server and its index
+        this.server = Object.assign(servers[0], {
+            credentials: servers[0].credentials?.secretKey ? servers[0].credentials : { secretKey: "" },
+            index: 0
+        })
 
         servers.forEach((server, index) => {
-            this.servers.push(server);
+            this.servers.push(Object.assign(server, {
+                credentials: server.credentials?.secretKey ? server.credentials : { secretKey: "" },
+            }));
             this.latencies.set(index, []);
             this.activeRequests.set(index, 0);
         })
@@ -167,7 +172,7 @@ export class Client<TInjected extends object = {}> {
         const { server, index } = this.getNextClient();
         try {
             const start = performance.now();
-            const credentials = server.credentials;
+            const credentials = server.credentials || {};
 
             const data = {
                 uuid: shortUUID.generate(),
@@ -180,14 +185,20 @@ export class Client<TInjected extends object = {}> {
                         language: PLATFORM,
                         ip: ip() || LOCALHOST,
                     }
-                    : undefined,
+                    : {
+                        language: PLATFORM,
+                        ip: ip() || LOCALHOST,
+                    },
             };
+
+
 
             const request = { server, trigger, payload }
             this.extensions.triggerHook('onRequestBegin', {
                 client: this,
                 request
             })
+
             const message = zlib.gzipSync(JSON.stringify(data))
             const { body, statusCode } = await this.client({ server, request }).post(server.url, {
                 json: { message: message.toString('base64') },
@@ -302,7 +313,7 @@ export class Client<TInjected extends object = {}> {
             JSON.stringify({
                 uuid: shortUUID.generate(),
                 trigger,
-                type: ALLOW_MESSAGE.RPC,
+                type: ALLOW_MESSAGE.STREAM,
                 payload,
                 credentials: server.credentials
                     ? {
@@ -310,7 +321,10 @@ export class Client<TInjected extends object = {}> {
                         language: PLATFORM,
                         ip: ip() || LOCALHOST,
                     }
-                    : undefined,
+                    : {
+                        language: PLATFORM,
+                        ip: ip() || LOCALHOST,
+                    },
             })
         );
 
