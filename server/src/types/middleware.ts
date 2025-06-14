@@ -1,4 +1,4 @@
-import { ClientFromServerType, CredentialsType } from './client';
+import { ClientType, CredentialsType } from './client';
 import { TriggerCallback, TriggerHandler } from '.';
 import { Extensions } from '../core/extensions';
 
@@ -12,7 +12,7 @@ export type TriggerHandlerType<TInjected extends object = {}> = {
         globalMiddlewares: TriggerCallback[]
         port: number
         logs: boolean
-        clients: Map<string, ClientFromServerType>
+        clients: Map<string, ClientType>
     };
 }
 

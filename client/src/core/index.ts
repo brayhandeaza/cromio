@@ -2,7 +2,7 @@ import shortUUID from 'short-uuid';
 import zlib, { createGunzip } from 'zlib';
 import got, { Got, ExtendOptions } from 'got';
 import { ip } from 'address';
-import { ClientConfig, ServersType, ResponseType, ClientExtension } from '../types';
+import { ClientOptionsType, ServersType, TriggerResponseType, ClientExtension, TriggerStreamResponseType, TriggerStreamResolvedResponseType } from '../types';
 import { ALLOW_MESSAGE, LOAD_BALANCER, LOCALHOST, PLATFORM, } from '../constants';
 import { performance } from "perf_hooks"
 import { Extensions } from './extensions';
@@ -24,7 +24,7 @@ export class Client<TInjected extends object = {}> {
     public showRequestInfo: boolean
     private client: (_: { server: ServersType, request: any }) => Got<ExtendOptions>
 
-    constructor({ servers, showRequestInfo = false, loadBalancerStrategy = LOAD_BALANCER.BEST_BIASED }: ClientConfig) {
+    constructor({ servers, showRequestInfo = false, loadBalancerStrategy = LOAD_BALANCER.BEST_BIASED }: ClientOptionsType) {
         this.loadBalancerStrategy = loadBalancerStrategy
         this.showRequestInfo = showRequestInfo
         this.extensions = new Extensions();
@@ -169,7 +169,7 @@ export class Client<TInjected extends object = {}> {
         });
     }
 
-    public async trigger(trigger: string, payload: any): Promise<ResponseType> {
+    public async trigger(trigger: string, payload: any): Promise<TriggerResponseType> {
         const { server, index } = this.getNextClient();
         try {
             const start = performance.now();
@@ -300,7 +300,7 @@ export class Client<TInjected extends object = {}> {
     }
 
 
-    public async triggerStream(trigger: string, payload: any, onData?: (data: any | null, error: Error | null, done: boolean) => void) {
+    public async triggerStream(trigger: string, payload: any, onData?: (data: any | null, error: Error | null, done: boolean) => void): Promise<TriggerStreamResponseType> {
         const { server, index } = this.getNextClient();
         const start = performance.now();
         const request = { server, trigger, payload };
@@ -482,7 +482,7 @@ export class Client<TInjected extends object = {}> {
     }
 
 
-    public async triggerStreamResolved(trigger: string, payload: any): Promise<ResponseType> {
+    public async triggerStreamResolved(trigger: string, payload: any): Promise<TriggerStreamResolvedResponseType> {
         let allData: any[] = [];
         let receivedSingleObject: any = undefined;
         const start = performance.now();

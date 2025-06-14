@@ -1,12 +1,12 @@
 import { prometheusMetrics, PrometheusMetricsOptions } from "./prometheus";
 import { RateLimitOptionsType, requestRateLimiter } from "./rateLimit"
+import { LoggerOptionsType, loggerExtension } from "./logger"
 
 
-export class Extensions {
-    static requestRateLimiter = (option?: RateLimitOptionsType) => {
-        return requestRateLimiter(option || {});
-    };
-    static prometheusMetrics(options: PrometheusMetricsOptions) {
-        return prometheusMetrics(options);
-    }
+
+export const Extensions = {
+    requestRateLimiter: (option?: RateLimitOptionsType) => requestRateLimiter(option || {}),
+    prometheusMetrics: (options?: PrometheusMetricsOptions) => prometheusMetrics(options || {}),
+    loggerExtension: (options?: LoggerOptionsType) => loggerExtension(options || {})
 }
+

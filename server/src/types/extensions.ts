@@ -1,4 +1,4 @@
-import { ClientFromServerType, CredentialsType, ServerExtension, ClientTypes, TriggerCallback, TriggerDefinitionType, TriggerHandler } from ".";
+import { ClientType, CredentialsType, ServerExtension, ClientTypes, TriggerCallback, TriggerDefinitionType, TriggerHandler } from ".";
 import { Server } from "../core";
 import { MiddlewareCallback } from "./middleware";
 
@@ -28,8 +28,8 @@ import { MiddlewareCallback } from "./middleware";
  * server.newProperty('Hello, world!'); // server.newProperty is injected by myExtension!
  */
 type ServerExtensionsType<TInjected extends object = any> = TInjected & {
-    client: ClientFromServerType;
-    clients: Map<string, ClientFromServerType>;
+    client: ClientType;
+    clients: Map<string, ClientType>;
     triggers: Set<string>;
     registerTriggerDefinition: (triggers: TriggerDefinitionType) => void;
     addTrigger(name: string, ...callbacks: MiddlewareCallback[]): void;

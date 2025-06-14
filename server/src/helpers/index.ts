@@ -1,17 +1,13 @@
-import { SubscriptionType, TriggerType } from "../types";
+import { SubscriptionType, TriggerDefinitionType } from "../types";
 import { SubscriptionDefinition } from "./SubscriptionDefinition";
 import { TriggerDefinition } from "./TriggerDefinition";
 import zlib from 'zlib';
 import { promisify } from 'util';
 
 
-export const triggerDefinition = (triggers?: TriggerType[]): TriggerDefinition => {
-	const trigger = new TriggerDefinition(triggers)
-
-	return trigger;
-}
-
-
+export const triggerDefinition = (triggers?: TriggerDefinitionType): TriggerDefinition => {
+  return new TriggerDefinition(triggers);
+};
 
 export const subscriptionDefinition = (subscriptions?: SubscriptionType[]): SubscriptionDefinition => {
 	const definition = new SubscriptionDefinition(subscriptions)

@@ -1,24 +1,24 @@
-import { MiddlewareCallback, TriggerDefinitionType, TriggerType, OnTriggerType } from "../types";
+import { MiddlewareCallback, TriggerCallback, OnTriggerType, TriggerDefinitionType } from "../types";
+
+
 
 export class TriggerDefinition {
-    triggers: TriggerDefinitionType = new Map<string, (ctx: OnTriggerType) => Promise<any>>();
+    triggers: Map<string, TriggerCallback> = new Map();
 
-    constructor(triggers: TriggerType[] = []) {
-        this.triggers = this.triggerDefinition(triggers);
+    constructor(triggers: TriggerDefinitionType = {}) {
+        this.setTriggers(triggers);
     }
 
-    public addTrigger(name: string, ...callbacks: MiddlewareCallback[]): void {
+    public onTrigger(name: string, ...callbacks: MiddlewareCallback[]): void {
         this.triggers.set(name, async (context: OnTriggerType) => {
             return await this.runMiddlewareChain(callbacks, context);
         });
     }
 
-    private triggerDefinition = (triggers: TriggerType[]): Map<string, (ctx: OnTriggerType) => Promise<any>> => {
-        const triggerMap = new Map<string, (ctx: OnTriggerType) => Promise<any>>();
-        for (const trigger of triggers) {
-            triggerMap.set(trigger.name, trigger.callback);
+    private setTriggers(triggers: TriggerDefinitionType): void {
+        for (const [name, callback] of Object.entries(triggers)) {
+            this.triggers.set(name, callback);
         }
-        return triggerMap;
     }
 
     private async runMiddlewareChain(callbacks: MiddlewareCallback[], context: OnTriggerType): Promise<any> {
@@ -39,7 +39,6 @@ export class TriggerDefinition {
                 return;
             }
 
-            // Break the chain if a middleware returned a value
             if (result !== undefined) {
                 return result;
             }

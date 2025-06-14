@@ -1,24 +1,26 @@
 import zlib from 'zlib';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
-import { ClientFromServerType, TriggerCallback, ServerContructorType, TriggerDefinitionType, OnTriggerType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension } from '../types';
+import { ClientType, TriggerCallback, ServerOptionsType,  OnTriggerType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension } from '../types';
 import { Extensions } from './extensions';
-import Fastify, { FastifyReply } from 'fastify';
 import { ClientMessageDataType } from '../auth/server';
 import { z } from 'zod';
 import { createGzip } from 'zlib';
 import { performance } from 'perf_hooks';
 import { PassThrough } from 'stream';
+import { TriggerDefinition } from '../helpers/TriggerDefinition';
+import http, { ServerResponse } from 'http';
+import getPort from 'get-port';
 
 
 export class Server<TInjected extends object = {}> {
     private extensions: Extensions<TInjected>;
-    private port: number;
+    private port: number | undefined;
     private logs: boolean;
     private triggerHandlers = new Map<string, TriggerHandler>();
     public triggers: Set<string> = new Set();
     private globalMiddlewares: TriggerCallback[] = [];
-    public clients = new Map<string, ClientFromServerType>();
+    public clients = new Map<string, ClientType>();
 
     private Logs = {
         trigger: ({ trigger, language, ip }: LogsType) => {
@@ -29,8 +31,8 @@ export class Server<TInjected extends object = {}> {
         }
     }
 
-    constructor(options?: ServerContructorType) {
-        const { port = 2000, clients = [], logs = true, tls } = options || {};
+    constructor(options?: ServerOptionsType) {
+        const { port, clients = [], logs = true, tls } = options || {};
         this.port = port;
         this.logs = logs;
 
@@ -39,144 +41,199 @@ export class Server<TInjected extends object = {}> {
 
     }
 
+    private createHttpServer = async (): Promise<http.Server> => {
+        const server = http.createServer((req, res) => {
+            if (req.method !== 'POST') return res.end(zlib.gzipSync(JSON.stringify({ error: { message: 'Only POST requests are allowed.' } })));
 
-    public start(callback?: (url: string) => void) {
-        const fastify = Fastify();
+            let body = '';
+            req.on('data', (chunk) => { body += chunk });
 
-        // ⛔ Global hook to reject all non-POST requests
-        fastify.get('*', (_, reply) => reply.code(405).send({ error: "Only POST requests are allowed." }))
-        fastify.delete('*', (_, reply) => reply.code(405).send({ error: "Only POST requests are allowed." }))
-        fastify.put('*', (_, reply) => reply.code(405).send({ error: "Only POST requests are allowed." }))
-        fastify.patch('*', (_, reply) => reply.code(405).send({ error: "Only POST requests are allowed." }))
+            req.on('end', async () => {
+                try {
+                    const start = performance.now();
+                    const bodySchema = z.object({ message: z.string() });
 
-        fastify.post('/', async (request, reply) => {
-            try {
-                const start = performance.now();
-                const bodySchema = z.object({ message: z.string() });
+                    const { message } = await bodySchema.parseAsync(JSON.parse(body));
+                    const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
+                    const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
 
-                const { message } = await bodySchema.parseAsync(request.body);
-                const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
-                const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
+                    const auth = this.verifyClient(credentials);
+                    if (auth.passed) {
+                        this.extensions.triggerHook("onRequestBegin", {
+                            request: { trigger, payload, credentials },
+                            server: this
+                        });                        
 
-                const auth = this.verifyClient(credentials);
-                if (auth.passed) {
-                    this.extensions.triggerHook("onRequestBegin", {
-                        request: { trigger, payload, credentials },
-                        server: this
-                    });
+                        const handler = this.triggerHandlers.get(trigger);
+                        if (!handler) {
+                            const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+                            this.extensions.triggerHook("onError", {
+                                server: this,
+                                error: new Error(message),
+                                request: { trigger, payload, client: auth.client }
+                            });
+                            return res.end(zlib.gzipSync(JSON.stringify({ error: { message } })));
+                        }
 
-                    const handler = this.triggerHandlers.get(trigger);
-                    if (!handler) {
-                        const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+                        await new Promise((resolve, reject) => {
+                            handler(payload, credentials, async (data: any, code: number = 200) => {
+                                try {
+                                    const time = performance.now() - start;
+                                    const safeData = data === undefined ? { data: null } : { data };
+
+                                    this.extensions.triggerHook("onRequestEnd", {
+                                        server: this,
+                                        request: { trigger, payload, client: credentials },
+                                        response: {
+                                            status: code,
+                                            ...safeData,
+                                            performance: {
+                                                size: Buffer.byteLength(JSON.stringify(safeData)),
+                                                time
+                                            }
+                                        }
+                                    });
+
+                                    if (type === 'stream') {
+                                        await this.streamJsonData(res, code, safeData);
+                                        resolve(null);
+
+                                    } else {
+                                        const message = zlib.gzipSync(JSON.stringify(safeData));
+                                        res.end(message);
+                                        resolve(null);
+                                    }
+
+                                } catch (err) {
+                                    this.extensions.triggerHook("onError", {
+                                        request: { trigger, payload, credentials },
+                                        server: this,
+                                        error: err,
+                                    });
+                                    reject(err);
+                                }
+                            });
+                        });
+
+                    } else {
                         this.extensions.triggerHook("onError", {
                             server: this,
-                            error: new Error(message),
-                            request: { trigger, payload, client: auth.client }
+                            error: new Error(auth.message),
+                            request: { trigger: null, payload: null, client: null }
                         });
-                        return reply
-                            .status(500)
-                            .send(zlib.gzipSync(JSON.stringify({ error: { message } })));
+                        return res.end(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
                     }
 
-                    await new Promise((resolve, reject) => {
-                        handler(payload, credentials, async (data: any, code: number = 200) => {
-                            try {
-                                const time = performance.now() - start;
-                                const safeData = data === undefined ? { data: null } : { data };
-
-                                this.extensions.triggerHook("onRequestEnd", {
-                                    server: this,
-                                    request: { trigger, payload, client: auth.client },
-                                    response: {
-                                        status: code,
-                                        ...safeData,
-                                        performance: {
-                                            size: Buffer.byteLength(JSON.stringify(safeData)),
-                                            time
-                                        }
-                                    }
-                                });
-
-                                if (type === 'stream') {
-                                    await this.streamJsonData(reply, code, safeData);
-                                    resolve(null);
-
-                                } else {
-                                    const message = zlib.gzipSync(JSON.stringify(safeData));
-                                    reply.status(code).send(message);
-                                    resolve(null);
-                                }
-
-                            } catch (err) {
-                                this.extensions.triggerHook("onError", {
-                                    request: { trigger, payload, credentials },
-                                    server: this,
-                                    error: err,
-                                });
-                                reject(err);
-                            }
-                        });
-                    });
-
-
-                    // await new Promise((resolve, reject) => {
-                    //     handler(payload, credentials, (data: any, code: number = 200) => {
-                    //         try {
-                    //             const time = performance.now() - start;
-                    //             const safeData = data === undefined ? null : { data };
-                    //             this.extensions.triggerHook("onRequestEnd", {
-                    //                 server: this,
-                    //                 request: { trigger, payload, client: auth.client },
-                    //                 response: {
-                    //                     status: code,
-                    //                     ...safeData,
-                    //                     performance: {
-                    //                         size: Buffer.byteLength(JSON.stringify(safeData)),
-                    //                         time
-                    //                     }
-                    //                 }
-                    //             });
-                    //             const message = zlib.gzipSync(JSON.stringify(safeData));
-                    //             reply.status(code).send(message);
-                    //             resolve(null);
-                    //         } catch (err) {
-                    //             this.extensions.triggerHook("onError", {
-                    //                 request: { trigger, payload, credentials },
-                    //                 server: this,
-                    //                 error: err,
-                    //             });
-                    //             reject(err);
-                    //         }
-                    //     });
-                    // });
-
-                } else {
-                    // 🔥 FIXED THIS PART
-                    this.extensions.triggerHook("onError", {
-                        server: this,
-                        error: new Error(auth.message),
-                        request: { trigger: null, payload: null, client: null }
-                    });
-                    return reply.send(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
+                } catch (error: any) {
+                    res.end(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
                 }
-
-            } catch (error: any) {
-                reply.status(500).send(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
-            }
-        });
-
-
-        fastify.listen({ port: this.port }, (err, address) => {
-            if (err) throw err
-
-            if (callback) callback(address.replaceAll("[::1]", `${ip()}`));
-            this.extensions.triggerHook("onStart", {
-                server: this,
             });
         });
+
+        return Promise.resolve(server);
     }
 
 
+    public start(callback?: (url: string) => void) {
+        // const server = http.createServer((req, res) => {
+        //     if (req.method !== 'POST') return res.end(zlib.gzipSync(JSON.stringify({ error: { message: 'Only POST requests are allowed.' } })));
+
+        //     let body = '';
+        //     req.on('data', (chunk) => { body += chunk });
+
+        //     req.on('end', async () => {
+        //         try {
+        //             const start = performance.now();
+        //             const bodySchema = z.object({ message: z.string() });
+
+        //             const { message } = await bodySchema.parseAsync(JSON.parse(body));
+        //             const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
+        //             const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
+
+        //             const auth = this.verifyClient(credentials);
+        //             if (auth.passed) {
+        //                 this.extensions.triggerHook("onRequestBegin", {
+        //                     request: { trigger, payload, credentials },
+        //                     server: this
+        //                 });
+
+        //                 const handler = this.triggerHandlers.get(trigger);
+        //                 if (!handler) {
+        //                     const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+        //                     this.extensions.triggerHook("onError", {
+        //                         server: this,
+        //                         error: new Error(message),
+        //                         request: { trigger, payload, client: auth.client }
+        //                     });
+        //                     // res.writeHead(500); // content buffer
+        //                     return res.end(zlib.gzipSync(JSON.stringify({ error: { message } })));
+        //                 }
+
+        //                 await new Promise((resolve, reject) => {
+        //                     handler(payload, credentials, async (data: any, code: number = 200) => {
+        //                         try {
+        //                             const time = performance.now() - start;
+        //                             const safeData = data === undefined ? { data: null } : { data };
+
+        //                             this.extensions.triggerHook("onRequestEnd", {
+        //                                 server: this,
+        //                                 request: { trigger, payload, client: auth.client },
+        //                                 response: {
+        //                                     status: code,
+        //                                     ...safeData,
+        //                                     performance: {
+        //                                         size: Buffer.byteLength(JSON.stringify(safeData)),
+        //                                         time
+        //                                     }
+        //                                 }
+        //                             });
+
+        //                             if (type === 'stream') {
+        //                                 await this.streamJsonData(res, code, safeData);
+        //                                 resolve(null);
+
+        //                             } else {
+        //                                 const message = zlib.gzipSync(JSON.stringify(safeData));
+        //                                 res.end(message);
+        //                                 resolve(null);
+        //                             }
+
+        //                         } catch (err) {
+        //                             this.extensions.triggerHook("onError", {
+        //                                 request: { trigger, payload, credentials },
+        //                                 server: this,
+        //                                 error: err,
+        //                             });
+        //                             reject(err);
+        //                         }
+        //                     });
+        //                 });
+
+        //             } else {
+        //                 this.extensions.triggerHook("onError", {
+        //                     server: this,
+        //                     error: new Error(auth.message),
+        //                     request: { trigger: null, payload: null, client: null }
+        //                 });
+        //                 return res.end(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
+        //             }
+
+        //         } catch (error: any) {
+        //             res.end(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
+        //         }
+        //     });
+        // });
+
+        this.createHttpServer().then(async server => {
+            this.port = this.port || await getPort({ port: 2000 });
+            server.listen(this.port, () => {
+                if (callback) callback(`${ip()}:${this.port}`);
+                this.extensions.triggerHook("onStart", {
+                    server: this,
+                });
+            });
+        })
+    }
 
     public addExtension<TNew extends {}>(...exts: ServerExtension<TNew>[]) {
         exts.forEach(ext => {
@@ -197,7 +254,7 @@ export class Server<TInjected extends object = {}> {
         this.globalMiddlewares.push(...callbacks);
     }
 
-    public registerTriggerDefinition({ triggers }: { triggers: TriggerDefinitionType }) {
+    public registerTriggerDefinition({ triggers }: TriggerDefinition) {
         triggers.forEach((callback, name) => {
             this.triggers.add(name);
             this.onTrigger(name, callback);
@@ -236,15 +293,13 @@ export class Server<TInjected extends object = {}> {
         });
     }
 
-    private streamJsonData(reply: FastifyReply, code: number, safeData: any) {
-        reply.status(code);
-        reply.header('Content-Encoding', 'gzip');
-        reply.header('Content-Type', 'application/json');
+    private streamJsonData(res: ServerResponse, code: number, safeData: any) {
+        // res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' }); // content buffer
 
         const stream = new PassThrough();
         const gzip = createGzip();
 
-        stream.pipe(gzip).pipe(reply.raw);
+        stream.pipe(gzip).pipe(res);
 
         // Helper to safely write a chunk and return a promise to await drain if needed
         const writeChunk = (chunk: string) =>
@@ -286,8 +341,8 @@ export class Server<TInjected extends object = {}> {
         });
 
         return new Promise((resolve, reject) => {
-            reply.raw.on('finish', resolve);
-            reply.raw.on('error', reject);
+            res.on("finish", resolve);
+            res.on("error", reject);
         });
     }
 
@@ -354,9 +409,9 @@ export class Server<TInjected extends object = {}> {
         return undefined;
     }
 
-    private verifyClient(credentials: ClientFromServerType): { passed: boolean, message: string, client?: ClientFromServerType } {
+    private verifyClient(credentials: ClientType): { passed: boolean, message: string, client?: ClientType } {
         if (this.clients.size < 1)
-            return { passed: true, message: `` }
+            return { passed: true, message: ``, client: credentials };
 
         const client = this.clients.get(credentials.secretKey);
         switch (true) {

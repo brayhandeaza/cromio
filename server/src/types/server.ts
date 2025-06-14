@@ -1,4 +1,4 @@
-import { ClientFromServerType, ExtensionType, OnErrorType, OnRequestBeginType, OnRequestEndType, OnStartType } from '.';
+import { ClientType, OnErrorType, OnRequestBeginType, OnRequestEndType, OnStartType } from '.';
 import { Server } from '../core';
 
 export type RequestErrorType = {
@@ -33,10 +33,7 @@ export type ServerExtension<TInjected extends object = any> = {
     onRequestEnd?(ctx: OnRequestEndType): void;
     onRequestBegin?(ctx: OnRequestBeginType): void;
     onError?(ctx: OnErrorType): void;
-
     onStop?(ctx: { server: Server<TInjected> & TInjected }): void;
-    [key: string]: any;
-    name?: string
 };
 
 export type TriggerType = {
@@ -44,6 +41,7 @@ export type TriggerType = {
     roles?: string[];
     callback: TriggerCallback;
 }
+
 export type SubscriptionType = {
     name: string;
     roles?: string[];
@@ -56,11 +54,11 @@ export type TSLOptions = {
     ca?: Buffer<ArrayBufferLike>[]
 }
 
-export type ServerContructorType = {
+export type ServerOptionsType = {
     tls?: TSLOptions;
     port?: number;
     logs?: boolean;
-    clients?: ClientFromServerType[];
+    clients?: ClientType[];
 }
 
 export type MessageDataType = {
@@ -68,19 +66,18 @@ export type MessageDataType = {
     uuid: string,
     type: string,
     payload: any,
-    credentials: ClientFromServerType
+    credentials: ClientType
 }
 
 export type OnRequestDataType = {
     trigger: string,
     payload: any,
-    client: ClientFromServerType
+    client: ClientType
 }
-
 
 export type TriggerCallback = (payload: any) => any;
 export type SubscriptionCallback = (payload: any) => any;
-export type TriggerHandler = (payload: any, credentials: ClientFromServerType, reply: (data: any) => void) => Promise<any>;
+export type TriggerHandler = (payload: any, credentials: ClientType, reply: (data: any) => void) => Promise<any>;
 export type TriggerDefinitionType = Map<string, TriggerCallback>
 export type SubscriptionDefinitionType = Map<string, SubscriptionCallback>
 

@@ -30,7 +30,7 @@ export type ServerOptions = {
 
 export type ServersType = & ServerOptions
 
-export type ClientConfig = {
+export type ClientOptionsType = {
     servers: ServerOptions[];
     loadBalancerStrategy?: LOAD_BALANCER
     showRequestInfo?: boolean

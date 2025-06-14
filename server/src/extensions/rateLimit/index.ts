@@ -3,9 +3,8 @@ import { OnRequestEndType, ServerExtension } from '../../types';
 import { RateLimitBucket, RateLimiter, RateLimitOptionsType } from './utils';
 export type { RateLimitOptionsType } from './utils';
 
-export const requestRateLimiter = ({ limit = 100, interval = 60000 }: RateLimitOptionsType): ServerExtension<{ rateLimiter: RateLimiter }> => {
+export const requestRateLimiter = ({ limit = 100, interval = 60000 }: RateLimitOptionsType): ServerExtension => {
     return {
-        
         injectProperties() {
             const buckets = new Map<string, RateLimitBucket>();
             const refill = (bucket: RateLimitBucket) => {
@@ -50,7 +49,7 @@ export const requestRateLimiter = ({ limit = 100, interval = 60000 }: RateLimitO
         },
         onRequestEnd({ request, server }: OnRequestEndType<{ rateLimiter: RateLimiter }>) {
             try {
-                const ip = request.client.ip;
+                const ip = request.client.ip
                 const allowed = server.rateLimiter.check(ip);
                 if (!allowed)
                     throw new Error(JSON.stringify([{

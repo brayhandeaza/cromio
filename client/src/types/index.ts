@@ -6,7 +6,7 @@ export * from "./extensions";
 
 export type EncodingType = "utf-8" | "buffer" | "json" | "base64" | "hex" | "ascii";
 
-export type ResponseType = {
+export type TriggerResponseType = {
     error?: {
         message: string
     }
@@ -24,6 +24,11 @@ export type ResponseType = {
     data: any
 }
 
+export type TriggerStreamResolvedResponseType = TriggerResponseType
+
+export type TriggerStreamResponseType = {
+    on: (cb: (data: any | null, error: Error | null, done: boolean) => void) => void
+}
 
 export type RequestErrorType = {
     error: {

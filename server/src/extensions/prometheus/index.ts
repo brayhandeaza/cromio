@@ -1,21 +1,46 @@
-import Fastify from 'fastify';
 import { OnErrorType, OnRequestBeginType, OnRequestEndType, ServerExtension } from "../../types"
 import { collectDefaultMetrics } from 'prom-client';
 import { PrometheusMetricsOptions, safeStringify, shouldTrackTrigger } from "./utils";
 export { type PrometheusMetricsOptions } from "./utils"
 import { Gauge, Histogram, register } from "prom-client";
+import { ip } from "address"
+import http from 'http';
+import getPort from 'get-port';
 
 
 collectDefaultMetrics({ register });
 
-export function prometheusMetrics(options: PrometheusMetricsOptions): ServerExtension<{ timer: (_: { trigger: string; server: string; status: number }) => void }> {
-    const { showLogs = true, port = 7001, name = 'jrpc_client' } = options;
-    const server = Fastify();
+export function prometheusMetrics(options: PrometheusMetricsOptions): ServerExtension {
+    const { showLogs = true, port, name = 'jrpc_server' } = options;
+
+    const createHttpServer = async (): Promise<http.Server> => {
+        const server = http.createServer();
+        const PORT = port || await getPort({ port: 2048 });
+
+        server.on('request', async (req, res) => {
+            if (req.url === '/metrics' && req.method === 'GET') {
+                const metrics = await register.metrics();
+                res.writeHead(200, { 'Content-Type': register.contentType });
+                res.end(metrics);
+            } else {
+                res.writeHead(404);
+                res.end();
+            }
+        });
+
+        server.listen(PORT, () => {
+            if (showLogs)
+                console.log(`🚀 Prometheus metrics exposed at: address=http://${ip()}:${PORT}/metrics`);
+        });
+
+
+        return Promise.resolve(server);
+    }
 
     const droppedRequestsCounter = new Gauge({
         name: `${name}_dropped_requests_total`,
         help: 'Total number of dropped (cancelled/timed-out) requests',
-        labelNames: ['trigger', 'client' , 'reason'],
+        labelNames: ['trigger', 'client', 'reason'],
         registers: [register],
     });
 
@@ -49,23 +74,11 @@ export function prometheusMetrics(options: PrometheusMetricsOptions): ServerExte
         registers: [register]
     });
 
-    server.listen({ port }, (err, address) => {
-        if (err) {
-            server.log.error(err);
-            process.exit(1);
-        };
-
-        if (showLogs)
-            console.log(`🚀 Prometheus metrics exposed at: address=${address}/metrics`);
-    });
-
-    server.get('/metrics', async (_, reply) => {
-        reply.type('text/plain');
-        reply.send(await register.metrics());
-    });
+    (async () => {
+        await createHttpServer();
+    })();
 
     return {
-        name,
         injectProperties() {
             return {
                 timer: function (_: { trigger: string; server: string; status: number }) { },
