@@ -23,4 +23,4 @@ export type OnTriggerType<TInjected extends object = any> = TriggerHandlerType<T
     reply: (data: any, code?: number) => void
 }
 
-export type MiddlewareCallback = (payload: OnTriggerType) => any;
+export type MiddlewareCallback = (ctx: OnTriggerType) => any;

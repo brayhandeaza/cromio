@@ -23,10 +23,15 @@ export type ClientFromServerType = {
 
 export type ServerOptions = {
     url: string;
+    tls?: TSLOptions
     credentials?: {
         secretKey: string;
     };
 };
+
+export type TSLOptions = {  
+    ca?: Buffer<ArrayBufferLike>,
+}
 
 export type ServersType = & ServerOptions
 
@@ -34,4 +39,5 @@ export type ClientOptionsType = {
     servers: ServerOptions[];
     loadBalancerStrategy?: LOAD_BALANCER
     showRequestInfo?: boolean
+    // tls?: TSLOptions
 };

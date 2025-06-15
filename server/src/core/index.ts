@@ -1,7 +1,7 @@
 import zlib from 'zlib';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
-import { ClientType, TriggerCallback, ServerOptionsType,  OnTriggerType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension } from '../types';
+import { ClientType, TriggerCallback, ServerOptionsType, OnTriggerType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension, TSLOptions } from '../types';
 import { Extensions } from './extensions';
 import { ClientMessageDataType } from '../auth/server';
 import { z } from 'zod';
@@ -10,7 +10,9 @@ import { performance } from 'perf_hooks';
 import { PassThrough } from 'stream';
 import { TriggerDefinition } from '../helpers/TriggerDefinition';
 import http, { ServerResponse } from 'http';
+import https from 'https';
 import getPort from 'get-port';
+import { ca } from 'zod/v4/locales';
 
 
 export class Server<TInjected extends object = {}> {
@@ -21,6 +23,7 @@ export class Server<TInjected extends object = {}> {
     public triggers: Set<string> = new Set();
     private globalMiddlewares: TriggerCallback[] = [];
     public clients = new Map<string, ClientType>();
+    private tls: TSLOptions | undefined
 
     private Logs = {
         trigger: ({ trigger, language, ip }: LogsType) => {
@@ -35,10 +38,202 @@ export class Server<TInjected extends object = {}> {
         const { port, clients = [], logs = true, tls } = options || {};
         this.port = port;
         this.logs = logs;
+        this.tls = tls
 
         clients.forEach(client => this.clients.set(client.secretKey, client));
         this.extensions = new Extensions();
 
+    }
+
+
+    /**
+     * Starts the server and begins listening on the configured or available port.
+     *
+     * Once the server is running, it optionally calls the provided callback with the server `url`.
+     *
+     * @param callback - Optional function to receive the server URL once it's listening.
+     *
+     * @example
+     * server.start((url) => {
+     *     console.log(`Server running at ${url}`);
+     * });
+     */
+    public start(callback?: (url: string) => void) {
+        try {
+            const protocol = (this.tls?.cert && this.tls?.key) ? 'https' : 'http';
+
+            if (protocol === 'http')
+                this.createHttpServer().then(async server => {
+                    this.port = this.port || await getPort({ port: 2000 });
+                    server.listen(this.port, () => {
+                        if (callback) callback(`${protocol}://${ip()}:${this.port}`);
+                        this.extensions.triggerHook("onStart", {
+                            server: this,
+                        });
+                    });
+                }).catch(error => {
+                    console.log(`${error.message}\n`)
+                    this.extensions.triggerHook("onError", {
+                        server: this,
+                        error,
+                    });
+                })
+            else
+                this.createTLSServer().then(async server => {
+                    this.port = this.port || await getPort({ port: 2000 });
+                    server.listen(this.port, () => {
+                        if (callback) callback(`${protocol}://${ip()}:${this.port}`);
+                        this.extensions.triggerHook("onStart", {
+                            server: this,
+                        });
+                    });
+                }).catch(error => {
+                    console.log(`${error.message}\n`)
+                    this.extensions.triggerHook("onError", {
+                        server: this,
+                        error,
+                    });
+                })
+
+        } catch (error) {
+            this.extensions.triggerHook("onError", {
+                server: this,
+                error,
+            });
+        }
+    }
+
+    /**
+     * Adds one or more server extensions and applies their injected properties.
+     *
+     * If an extension provides an `injectProperties()` method, its returned values are merged into the server instance.
+     * This allows extensions to add new functionality or shared utilities to the server.
+     *
+     * @template TNew - The type of the properties injected by the extension(s).
+     * @param exts - One or more `ServerExtension` objects to register and apply.
+   
+     */
+    public addExtension<TNew extends {}>(...exts: ServerExtension<TNew>[]) {
+        exts.forEach(ext => {
+            if (ext.injectProperties) {
+                const injected = ext.injectProperties(this as any); // We assert `any` here internally
+                Object.assign(this, injected);
+            }
+
+            this.extensions.useExtension(ext)
+        });
+    }
+
+    /**
+     * Adds one or more global middleware callbacks to be executed for every trigger.
+     *
+     * These middlewares run before any trigger-specific middleware and apply to all incoming requests.
+     *
+     * @param callbacks - One or more middleware functions to run globally on every trigger invocation.
+     *
+     * You can use `reply(...)` or `return` to send a response early from any middleware and break the middleware chain or let the next middleware run.
+     * 
+     * @example
+     * server.addMiddleware(({ trigger }: OnTriggerType) => {
+     *     console.log(`Trigger called: ${trigger}`);
+     * });
+     * 
+     * @example
+     * server.addMiddleware(({ body, reply }: OnTriggerType) => {
+     *     // Break the middleware chain if token is missing
+     *     if (!body.token) reply({ error: "Unauthorized" }); 
+     * });
+     
+     */
+    public addMiddleware(...callbacks: MiddlewareCallback[]) {
+        this.globalMiddlewares.push(...callbacks);
+    }
+
+    /**
+        * Registers multiple RPC trigger handlers at once using a trigger definition.
+        * 
+        * This is a shortcut for calling `onTrigger` multiple times.
+        *
+        * @param definition - An instance of the `TriggerDefinition` class, which contains a map of trigger names to middleware functions.
+        *
+        * @example
+        const triggers = triggerDefinition({
+            sub: async ({ body }: OnTriggerType) => {
+                return body.num1 - body.num2;
+            },
+            add: async ({ body }: OnTriggerType) => {
+                return body.num1 + body.num2;
+            }
+        });
+
+        // Register the triggers on the server.
+        server.registerTriggerDefinition(triggers);
+    */
+    public registerTriggerDefinition({ triggers }: TriggerDefinition) {
+        triggers.forEach((callback, name) => {
+            this.triggers.add(name);
+            this.onTrigger(name, callback);
+        })
+    }
+
+    /**
+        * Registers a trigger handler for a given RPC method name.
+        *
+        * When a client invokes the specified trigger, the provided middleware callbacks are executed in order.
+        * You can use `reply(...)` or `return` to send a response early from any middleware.
+        *
+        * @param name - The unique name of the trigger to handle.
+        * @param callbacks - One or more middleware functions to handle the trigger. These will be executed in order after global middleware.
+        *
+        * The execution context provided to each middleware includes:
+        * - `server`: The full server instance (including injected extensions).
+        * - `trigger`: The trigger name.
+        * - `credentials`: The client credentials associated with the request.
+        * - `body`: The trigger payload sent by the client.
+        * - `reply(...)`: A function to send a response early and stop further middleware execution.
+        *
+        * you can `return` a value from the middleware, this also will send a response early and stop further middleware execution.
+        * @example
+        * server.onTrigger("echo", async ({ body }: OnTriggerType) => {
+        *     return body; // Echo the input back to the client
+        * });
+        *
+        * @example
+        * server.onTrigger("auth", async ({ body, reply }: OnTriggerType) => {
+        *     if (!body.token) reply({ error: "Unauthorized" });
+        *     // Continue to next middleware or return a value
+        * });
+    */
+    public onTrigger(name: string, ...callbacks: MiddlewareCallback[]) {
+        this.triggers.add(name);
+        this.triggerHandlers.set(name, async (payload, credentials, reply) => {
+            let responseSent = false;
+
+            const context: OnTriggerType = {
+                server: {
+                    ...this,
+                    extensions: this.extensions,
+                    port: this.port,
+                    logs: this.logs,
+                    clients: this.clients
+                },
+                trigger: name,
+                credentials,
+                body: payload,
+                reply: (data: any) => {
+                    responseSent = true;
+                    return reply(data);
+                }
+            };
+
+            // runMiddlewareChain now returns the return value of the last middleware
+            const result = await this.runMiddlewareChain([...this.globalMiddlewares, ...callbacks], context);
+
+            if (!responseSent) {
+                // If nothing was returned and no reply called, send undefined explicitly
+                reply(result === undefined ? undefined : result);
+            }
+        });
     }
 
     private createHttpServer = async (): Promise<http.Server> => {
@@ -62,7 +257,7 @@ export class Server<TInjected extends object = {}> {
                         this.extensions.triggerHook("onRequestBegin", {
                             request: { trigger, payload, credentials },
                             server: this
-                        });                        
+                        });
 
                         const handler = this.triggerHandlers.get(trigger);
                         if (!handler) {
@@ -133,164 +328,112 @@ export class Server<TInjected extends object = {}> {
         return Promise.resolve(server);
     }
 
+    private createTLSServer = async (): Promise<http.Server> => {
+        try {
+            const options = {
+                key: this.tls?.key,
+                cert: this.tls?.cert,
+                rejectUnauthorized: true
+            };
+            const server = https.createServer(options, (req, res) => {
+                if (req.method !== 'POST') return res.end(zlib.gzipSync(JSON.stringify({ error: { message: 'Only POST requests are allowed.' } })));
 
-    public start(callback?: (url: string) => void) {
-        // const server = http.createServer((req, res) => {
-        //     if (req.method !== 'POST') return res.end(zlib.gzipSync(JSON.stringify({ error: { message: 'Only POST requests are allowed.' } })));
+                let body = '';
+                req.on('data', (chunk) => { body += chunk });
 
-        //     let body = '';
-        //     req.on('data', (chunk) => { body += chunk });
+                req.on('end', async () => {
+                    try {
+                        const start = performance.now();
+                        const bodySchema = z.object({ message: z.string() });
 
-        //     req.on('end', async () => {
-        //         try {
-        //             const start = performance.now();
-        //             const bodySchema = z.object({ message: z.string() });
+                        const { message } = await bodySchema.parseAsync(JSON.parse(body));
+                        const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
+                        const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
 
-        //             const { message } = await bodySchema.parseAsync(JSON.parse(body));
-        //             const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
-        //             const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
+                        const auth = this.verifyClient(credentials);
+                        if (auth.passed) {
+                            this.extensions.triggerHook("onRequestBegin", {
+                                request: { trigger, payload, credentials },
+                                server: this
+                            });
 
-        //             const auth = this.verifyClient(credentials);
-        //             if (auth.passed) {
-        //                 this.extensions.triggerHook("onRequestBegin", {
-        //                     request: { trigger, payload, credentials },
-        //                     server: this
-        //                 });
+                            const handler = this.triggerHandlers.get(trigger);
+                            if (!handler) {
+                                const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+                                this.extensions.triggerHook("onError", {
+                                    server: this,
+                                    error: new Error(message),
+                                    request: { trigger, payload, client: auth.client }
+                                });
+                                return res.end(zlib.gzipSync(JSON.stringify({ error: { message } })));
+                            }
 
-        //                 const handler = this.triggerHandlers.get(trigger);
-        //                 if (!handler) {
-        //                     const message = `🚫 Trigger '${trigger}' is not registered on the server`;
-        //                     this.extensions.triggerHook("onError", {
-        //                         server: this,
-        //                         error: new Error(message),
-        //                         request: { trigger, payload, client: auth.client }
-        //                     });
-        //                     // res.writeHead(500); // content buffer
-        //                     return res.end(zlib.gzipSync(JSON.stringify({ error: { message } })));
-        //                 }
+                            await new Promise((resolve, reject) => {
+                                handler(payload, credentials, async (data: any, code: number = 200) => {
+                                    try {
+                                        const time = performance.now() - start;
+                                        const safeData = data === undefined ? { data: null } : { data };
 
-        //                 await new Promise((resolve, reject) => {
-        //                     handler(payload, credentials, async (data: any, code: number = 200) => {
-        //                         try {
-        //                             const time = performance.now() - start;
-        //                             const safeData = data === undefined ? { data: null } : { data };
+                                        this.extensions.triggerHook("onRequestEnd", {
+                                            server: this,
+                                            request: { trigger, payload, client: credentials },
+                                            response: {
+                                                status: code,
+                                                ...safeData,
+                                                performance: {
+                                                    size: Buffer.byteLength(JSON.stringify(safeData)),
+                                                    time
+                                                }
+                                            }
+                                        });
 
-        //                             this.extensions.triggerHook("onRequestEnd", {
-        //                                 server: this,
-        //                                 request: { trigger, payload, client: auth.client },
-        //                                 response: {
-        //                                     status: code,
-        //                                     ...safeData,
-        //                                     performance: {
-        //                                         size: Buffer.byteLength(JSON.stringify(safeData)),
-        //                                         time
-        //                                     }
-        //                                 }
-        //                             });
+                                        if (type === 'stream') {
+                                            await this.streamJsonData(res, code, safeData);
+                                            resolve(null);
 
-        //                             if (type === 'stream') {
-        //                                 await this.streamJsonData(res, code, safeData);
-        //                                 resolve(null);
+                                        } else {
+                                            const message = zlib.gzipSync(JSON.stringify(safeData));
+                                            res.end(message);
+                                            resolve(null);
+                                        }
 
-        //                             } else {
-        //                                 const message = zlib.gzipSync(JSON.stringify(safeData));
-        //                                 res.end(message);
-        //                                 resolve(null);
-        //                             }
+                                    } catch (err) {
+                                        this.extensions.triggerHook("onError", {
+                                            request: { trigger, payload, credentials },
+                                            server: this,
+                                            error: err,
+                                        });
+                                        reject(err);
+                                    }
+                                });
+                            });
 
-        //                         } catch (err) {
-        //                             this.extensions.triggerHook("onError", {
-        //                                 request: { trigger, payload, credentials },
-        //                                 server: this,
-        //                                 error: err,
-        //                             });
-        //                             reject(err);
-        //                         }
-        //                     });
-        //                 });
+                        } else {
+                            this.extensions.triggerHook("onError", {
+                                server: this,
+                                error: new Error(auth.message),
+                                request: { trigger: null, payload: null, client: null }
+                            });
+                            return res.end(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
+                        }
 
-        //             } else {
-        //                 this.extensions.triggerHook("onError", {
-        //                     server: this,
-        //                     error: new Error(auth.message),
-        //                     request: { trigger: null, payload: null, client: null }
-        //                 });
-        //                 return res.end(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
-        //             }
-
-        //         } catch (error: any) {
-        //             res.end(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
-        //         }
-        //     });
-        // });
-
-        this.createHttpServer().then(async server => {
-            this.port = this.port || await getPort({ port: 2000 });
-            server.listen(this.port, () => {
-                if (callback) callback(`${ip()}:${this.port}`);
-                this.extensions.triggerHook("onStart", {
-                    server: this,
+                    } catch (error: any) {
+                        res.end(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
+                    }
                 });
             });
-        })
-    }
 
-    public addExtension<TNew extends {}>(...exts: ServerExtension<TNew>[]) {
-        exts.forEach(ext => {
-            if (ext.injectProperties) {
-                const injected = ext.injectProperties(this as any); // We assert `any` here internally
-                Object.assign(this, injected);
+            return Promise.resolve(server);
+
+        } catch (error: any) {
+            switch (true) {
+                case error.code === 'ERR_OSSL_X509_KEY_VALUES_MISMATCH':
+                    const friendlyMessage = `🚫 Failed to start TLS server. The certificate and private key do not match — please check your TLS credentials.`;
+                    throw new Error(friendlyMessage);
+                default:
+                    throw error.message
             }
-
-            this.extensions.useExtension(ext)
-        });
-    }
-
-    public addMiddleware(callback: TriggerCallback) {
-        this.globalMiddlewares.push(callback);
-    }
-
-    public addGlobalMiddleware(...callbacks: TriggerCallback[]) {
-        this.globalMiddlewares.push(...callbacks);
-    }
-
-    public registerTriggerDefinition({ triggers }: TriggerDefinition) {
-        triggers.forEach((callback, name) => {
-            this.triggers.add(name);
-            this.onTrigger(name, callback);
-        })
-    }
-
-    public onTrigger(name: string, ...callbacks: MiddlewareCallback[]) {
-        this.triggers.add(name);
-        this.triggerHandlers.set(name, async (payload, credentials, reply) => {
-            let responseSent = false;
-
-            const context: OnTriggerType = {
-                server: {
-                    ...this,
-                    extensions: this.extensions,
-                    port: this.port,
-                    logs: this.logs,
-                    clients: this.clients
-                },
-                trigger: name,
-                credentials,
-                body: payload,
-                reply: (data: any) => {
-                    responseSent = true;
-                    return reply(data);
-                }
-            };
-
-            // runMiddlewareChain now returns the return value of the last middleware
-            const result = await this.runMiddlewareChain([...this.globalMiddlewares, ...callbacks], context);
-
-            if (!responseSent) {
-                // If nothing was returned and no reply called, send undefined explicitly
-                reply(result === undefined ? undefined : result);
-            }
-        });
+        }
     }
 
     private streamJsonData(res: ServerResponse, code: number, safeData: any) {

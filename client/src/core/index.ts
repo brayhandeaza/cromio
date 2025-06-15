@@ -11,6 +11,8 @@ import { streamArray } from 'stream-json/streamers/StreamArray';
 import { streamObject } from 'stream-json/streamers/StreamObject';
 import { chain, Readable } from 'stream-chain';
 import { EventEmitter } from 'events';
+import https from 'https';
+import { TlsOptions } from 'tls';
 
 export class Client<TInjected extends object = {}> {
     private servers: ServersType[] = [];
@@ -200,10 +202,21 @@ export class Client<TInjected extends object = {}> {
                 request
             })
 
+            const secureHttps = server.tls ? {
+                agent: {
+                    https: new https.Agent({
+                        ca: server.tls?.ca ? [server.tls?.ca] : [],
+                        rejectUnauthorized: true
+                    })
+                }
+            } : {}
+
+
             const message = zlib.gzipSync(JSON.stringify(data))
             const { body, statusCode } = await this.client({ server, request }).post(server.url, {
                 json: { message: message.toString('base64') },
                 responseType: 'buffer',
+                ...secureHttps
             })
 
             const response = zlib.gunzipSync(body).toString('utf8');
@@ -267,35 +280,52 @@ export class Client<TInjected extends object = {}> {
             };
 
         } catch (err: any) {
-            // 👇 Custom network error handling
-            if (err.name === 'RequestError' || err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
-                const friendlyMessage = `🚫 Unable to reach server at '${server.url}'. Make sure the server is running and reachable.`;
+            switch (true) {
+                case err.code === 'DEPTH_ZERO_SELF_SIGNED_CERT': {
+                    const friendlyMessage = `🚫 Secure connection to '${server.url}' failed — possibly due to an untrusted TLS certificate.`;
 
-                this.extensions.triggerHook('onError', {
-                    client: this,
-                    error: new Error(friendlyMessage),
-                });
+                    this.extensions.triggerHook('onError', {
+                        client: this,
+                        error: new Error(friendlyMessage),
+                    })
 
-                return {
-                    data: null,
-                    error: {
-                        message: friendlyMessage,
-                    },
-                };
+                    return {
+                        data: null,
+                        error: {
+                            message: friendlyMessage,
+                        },
+                    };
+                }
+                case err.name === 'RequestError' || err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT': {
+                    const friendlyMessage = `🚫 Unable to reach server at '${server.url}'. Make sure the server is running and reachable.`;
+
+                    this.extensions.triggerHook('onError', {
+                        client: this,
+                        error: new Error(friendlyMessage),
+                    });
+
+                    return {
+                        data: null,
+                        error: {
+                            message: friendlyMessage,
+                        },
+                    };
+                }
+                default:
+                    // 👇 Fallback generic error
+                    this.extensions.triggerHook('onError', {
+                        client: this,
+                        error: new Error(err.message),
+                    });
+
+                    return {
+                        data: null,
+                        error: {
+                            message: err.message ?? 'Unknown error',
+                        }
+                    };
             }
 
-            // 👇 Fallback generic error
-            this.extensions.triggerHook('onError', {
-                client: this,
-                error: new Error(err.message),
-            });
-
-            return {
-                data: null,
-                error: {
-                    message: err.message ?? 'Unknown error',
-                }
-            };
         }
     }
 

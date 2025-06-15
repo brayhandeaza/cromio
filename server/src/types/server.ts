@@ -51,7 +51,6 @@ export type SubscriptionType = {
 export type TSLOptions = {
     key?: Buffer<ArrayBufferLike>;
     cert?: Buffer<ArrayBufferLike>;
-    ca?: Buffer<ArrayBufferLike>[]
 }
 
 export type ServerOptionsType = {
