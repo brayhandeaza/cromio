@@ -321,7 +321,7 @@ export class Client<TInjected extends object = {}> {
                     return {
                         data: null,
                         error: {
-                            message: err.message ?? 'Unknown error',
+                            message: err.toString(),
                         }
                     };
             }

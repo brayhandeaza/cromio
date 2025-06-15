@@ -12,9 +12,34 @@ import { TriggerDefinition } from '../helpers/TriggerDefinition';
 import http, { ServerResponse } from 'http';
 import https from 'https';
 import getPort from 'get-port';
-import { ca } from 'zod/v4/locales';
 
-
+/**
+ * Represents the RPC server responsible for handling triggers, managing clients, and coordinating extensions.
+ *
+ * The `Server` class supports custom middleware, trigger-based request handling, TLS options, and extensibility via
+ * the `addExtension()` system. It can be configured with optional startup settings like custom port, client list, and TLS.
+ *
+ * @template TInjected - Represents properties injected by registered extensions via `injectProperties()`.
+ *
+ * @method `addExtension` - Adds an extension to the server, enabling additional functionality.
+ * @method `addMiddleware` - Adds one or more global middleware callbacks to be executed for every trigger.
+ * @method `registerTriggerDefinition` - Registers multiple RPC trigger handlers at once using a trigger definition.
+ * @method `onTrigger` - Registers a trigger handler for a given RPC method name.
+ * @method `start` - Starts the server and begins listening on the configured or available port.
+ * 
+ * @property {Set<string>} `triggers` - A set of all registered trigger names.
+ * @property {Map<string, ClientType>} `clients` - A map of connected clients, keyed by their secret key.
+ *
+ * 
+ * @example
+ * const server = new Server({ port: 3000 });
+ * 
+ * server.onTrigger("ping", () => "pong");
+ * 
+ * server.start((url: string) => {
+ *     console.log(`🚀 Server is running at: ${url}`);
+ * });
+ */
 export class Server<TInjected extends object = {}> {
     private extensions: Extensions<TInjected>;
     private port: number | undefined;
@@ -45,7 +70,6 @@ export class Server<TInjected extends object = {}> {
 
     }
 
-
     /**
      * Starts the server and begins listening on the configured or available port.
      *
@@ -72,7 +96,7 @@ export class Server<TInjected extends object = {}> {
                         });
                     });
                 }).catch(error => {
-                    console.log(`${error.message}\n`)
+                    console.log(`${error.toString()}\n`)
                     this.extensions.triggerHook("onError", {
                         server: this,
                         error,
@@ -88,7 +112,7 @@ export class Server<TInjected extends object = {}> {
                         });
                     });
                 }).catch(error => {
-                    console.log(`${error.message}\n`)
+                    console.log(`${error.toString()}\n`)
                     this.extensions.triggerHook("onError", {
                         server: this,
                         error,
@@ -237,95 +261,106 @@ export class Server<TInjected extends object = {}> {
     }
 
     private createHttpServer = async (): Promise<http.Server> => {
-        const server = http.createServer((req, res) => {
-            if (req.method !== 'POST') return res.end(zlib.gzipSync(JSON.stringify({ error: { message: 'Only POST requests are allowed.' } })));
+        try {
+            const server = http.createServer((req, res) => {
+                if (req.method !== 'POST') return res.end(zlib.gzipSync(JSON.stringify({ error: { message: 'Only POST requests are allowed.' } })));
 
-            let body = '';
-            req.on('data', (chunk) => { body += chunk });
+                let body = '';
+                req.on('data', (chunk) => { body += chunk });
 
-            req.on('end', async () => {
-                try {
-                    const start = performance.now();
-                    const bodySchema = z.object({ message: z.string() });
+                req.on('end', async () => {
+                    try {
+                        const start = performance.now();
+                        const bodySchema = z.object({ message: z.string() });
 
-                    const { message } = await bodySchema.parseAsync(JSON.parse(body));
-                    const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
-                    const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
+                        const { message } = await bodySchema.parseAsync(JSON.parse(body));
+                        const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
+                        const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
 
-                    const auth = this.verifyClient(credentials);
-                    if (auth.passed) {
-                        this.extensions.triggerHook("onRequestBegin", {
-                            request: { trigger, payload, credentials },
-                            server: this
-                        });
+                        const auth = this.verifyClient(credentials);
+                        if (auth.passed) {
+                            this.extensions.triggerHook("onRequestBegin", {
+                                request: { trigger, payload, credentials },
+                                server: this
+                            });
 
-                        const handler = this.triggerHandlers.get(trigger);
-                        if (!handler) {
-                            const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+                            const handler = this.triggerHandlers.get(trigger);
+                            if (!handler) {
+                                const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+                                this.extensions.triggerHook("onError", {
+                                    server: this,
+                                    error: new Error(message),
+                                    request: { trigger, payload, client: auth.client }
+                                });
+                                return res.end(zlib.gzipSync(JSON.stringify({ error: { message } })));
+                            }
+
+                            await new Promise((resolve, reject) => {
+                                handler(payload, credentials, async (data: any, code: number = 200) => {
+                                    try {
+                                        const time = performance.now() - start;
+                                        const safeData = data === undefined ? { data: null } : { data };
+
+                                        this.extensions.triggerHook("onRequestEnd", {
+                                            server: this,
+                                            request: { trigger, payload, client: credentials },
+                                            response: {
+                                                status: code,
+                                                ...safeData,
+                                                performance: {
+                                                    size: Buffer.byteLength(JSON.stringify(safeData)),
+                                                    time
+                                                }
+                                            }
+                                        });
+
+                                        if (type === 'stream') {
+                                            await this.streamJsonData(res, code, safeData);
+                                            resolve(null);
+
+                                        } else {
+                                            const message = zlib.gzipSync(JSON.stringify(safeData));
+                                            res.end(message);
+                                            resolve(null);
+                                        }
+
+                                    } catch (err) {
+                                        this.extensions.triggerHook("onError", {
+                                            request: { trigger, payload, credentials },
+                                            server: this,
+                                            error: err,
+                                        });
+                                        reject(err);
+                                    }
+                                });
+                            });
+
+                        } else {
                             this.extensions.triggerHook("onError", {
                                 server: this,
-                                error: new Error(message),
-                                request: { trigger, payload, client: auth.client }
+                                error: new Error(auth.message),
+                                request: { trigger: null, payload: null, client: null }
                             });
-                            return res.end(zlib.gzipSync(JSON.stringify({ error: { message } })));
+                            return res.end(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
                         }
 
-                        await new Promise((resolve, reject) => {
-                            handler(payload, credentials, async (data: any, code: number = 200) => {
-                                try {
-                                    const time = performance.now() - start;
-                                    const safeData = data === undefined ? { data: null } : { data };
-
-                                    this.extensions.triggerHook("onRequestEnd", {
-                                        server: this,
-                                        request: { trigger, payload, client: credentials },
-                                        response: {
-                                            status: code,
-                                            ...safeData,
-                                            performance: {
-                                                size: Buffer.byteLength(JSON.stringify(safeData)),
-                                                time
-                                            }
-                                        }
-                                    });
-
-                                    if (type === 'stream') {
-                                        await this.streamJsonData(res, code, safeData);
-                                        resolve(null);
-
-                                    } else {
-                                        const message = zlib.gzipSync(JSON.stringify(safeData));
-                                        res.end(message);
-                                        resolve(null);
-                                    }
-
-                                } catch (err) {
-                                    this.extensions.triggerHook("onError", {
-                                        request: { trigger, payload, credentials },
-                                        server: this,
-                                        error: err,
-                                    });
-                                    reject(err);
-                                }
-                            });
-                        });
-
-                    } else {
-                        this.extensions.triggerHook("onError", {
-                            server: this,
-                            error: new Error(auth.message),
-                            request: { trigger: null, payload: null, client: null }
-                        });
-                        return res.end(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
+                    } catch (error: any) {
+                        res.end(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
                     }
-
-                } catch (error: any) {
-                    res.end(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
-                }
+                });
             });
-        });
 
-        return Promise.resolve(server);
+            return Promise.resolve(server);
+        } catch (error: any) {
+            switch (true) {
+                case error.code === 'ERR_OSSL_X509_KEY_VALUES_MISMATCH' || error.code === 'ERR_OSSL_PEM_BAD_BASE64_DECODE' || error.code.includes('ERR_OSSL_PEM'):
+                    const friendlyMessage = `🚫 Failed to start TLS server. The certificate and private key do not match — please check your TLS credentials.`;
+                    throw new Error(friendlyMessage);
+                default:
+                    throw error
+            }
+        }
+
     }
 
     private createTLSServer = async (): Promise<http.Server> => {
@@ -427,11 +462,11 @@ export class Server<TInjected extends object = {}> {
 
         } catch (error: any) {
             switch (true) {
-                case error.code === 'ERR_OSSL_X509_KEY_VALUES_MISMATCH':
+                case error.code === 'ERR_OSSL_X509_KEY_VALUES_MISMATCH' || error.code === 'ERR_OSSL_PEM_BAD_BASE64_DECODE' || error.code.includes('ERR_OSSL_PEM'):
                     const friendlyMessage = `🚫 Failed to start TLS server. The certificate and private key do not match — please check your TLS credentials.`;
                     throw new Error(friendlyMessage);
                 default:
-                    throw error.message
+                    throw error
             }
         }
     }
