@@ -1,4 +1,3 @@
-import zlib from 'zlib';
 import { Buffer } from 'buffer';
 import { ip } from 'address';
 import { ClientType, TriggerCallback, ServerOptionsType, OnTriggerType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension, TSLOptions } from '../types';
@@ -9,6 +8,7 @@ import { createGzip } from 'zlib';
 import { performance } from 'perf_hooks';
 import { PassThrough } from 'stream';
 import { TriggerDefinition } from '../helpers/TriggerDefinition';
+import zlib from 'zlib';
 import http, { ServerResponse } from 'http';
 import https from 'https';
 import getPort from 'get-port';
