@@ -18,6 +18,7 @@ export class TriggerDefinition {
     private setTriggers(triggers: TriggerDefinitionType): void {
         for (const [name, callback] of Object.entries(triggers)) {
             this.triggers.set(name, callback);
+           
         }
     }
 

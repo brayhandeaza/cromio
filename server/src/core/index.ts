@@ -65,9 +65,11 @@ export class Server<TInjected extends object = {}> {
         this.logs = logs;
         this.tls = tls
 
-        clients.forEach(client => this.clients.set(client.secretKey, client));
-        this.extensions = new Extensions();
+        clients.forEach(client => this.clients.set(client.secretKey, Object.assign(client, {
+            ip: client.ip || "*",
+        })));
 
+        this.extensions = new Extensions();
     }
 
     /**
@@ -242,7 +244,9 @@ export class Server<TInjected extends object = {}> {
                     clients: this.clients
                 },
                 trigger: name,
-                credentials,
+                credentials: Object.assign(credentials, {
+                    ip: credentials.ip || "*",
+                }),
                 body: payload,
                 reply: (data: any) => {
                     responseSent = true;
@@ -593,11 +597,6 @@ export class Server<TInjected extends object = {}> {
 
         const client = this.clients.get(credentials.secretKey);
         switch (true) {
-            case !credentials.secretKey:
-                return {
-                    passed: false,
-                    message: `🚫 Authentication Failed: Client at ip=${credentials.ip} did not provide a valid secretKey`,
-                };
             case !client:
                 return {
                     passed: false,

@@ -12,7 +12,6 @@ import { streamObject } from 'stream-json/streamers/StreamObject';
 import { chain, Readable } from 'stream-chain';
 import { EventEmitter } from 'events';
 import https from 'https';
-import { TlsOptions } from 'tls';
 
 export class Client<TInjected extends object = {}> {
     private servers: ServersType[] = [];
@@ -31,14 +30,16 @@ export class Client<TInjected extends object = {}> {
         this.showRequestInfo = showRequestInfo
         this.extensions = new Extensions();
         this.server = Object.assign(servers[0], {
-            credentials: servers[0].credentials?.secretKey ? servers[0].credentials : { secretKey: "" },
+            secretKey: servers[0].secretKey || null,
             index: 0
         })
 
         servers.forEach((server, index) => {
             this.servers.push(Object.assign(server, {
-                credentials: server.credentials?.secretKey ? server.credentials : { secretKey: "" },
+                secretKey: server.secretKey || null,
+                index
             }));
+
             this.latencies.set(index, []);
             this.activeRequests.set(index, 0);
         })
@@ -175,16 +176,15 @@ export class Client<TInjected extends object = {}> {
         const { server, index } = this.getNextClient();
         try {
             const start = performance.now();
-            const credentials = server.credentials || {};
 
             const data = {
                 uuid: shortUUID.generate(),
                 trigger,
                 type: ALLOW_MESSAGE.RPC,
                 payload,
-                credentials: credentials
+                credentials: server.secretKey
                     ? {
-                        ...credentials,
+                        secretKey: server.secretKey,
                         language: PLATFORM,
                         ip: ip() || LOCALHOST,
                     }
@@ -347,9 +347,9 @@ export class Client<TInjected extends object = {}> {
                 trigger,
                 type: ALLOW_MESSAGE.STREAM,
                 payload,
-                credentials: server.credentials
+                credentials: server.secretKey
                     ? {
-                        ...server.credentials,
+                        secretKey: server.secretKey,
                         language: PLATFORM,
                         ip: ip() || LOCALHOST,
                     }

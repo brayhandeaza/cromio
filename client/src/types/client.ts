@@ -24,9 +24,7 @@ export type ClientFromServerType = {
 export type ServerOptions = {
     url: string;
     tls?: TSLOptions
-    credentials?: {
-        secretKey: string;
-    };
+    secretKey?: string | null;
 };
 
 export type TSLOptions = {  

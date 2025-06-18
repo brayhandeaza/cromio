@@ -22,8 +22,7 @@ export type ClientContructorType = {
 export type ClientType = {
     secretKey: string;
     language: 'nodejs' | 'python';
-    roles?: string[];
-    ip: string;
+    ip?: string;
 }
 
 
