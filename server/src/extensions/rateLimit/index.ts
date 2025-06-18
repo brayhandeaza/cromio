@@ -49,7 +49,7 @@ export const requestRateLimiter = ({ limit = 100, interval = 60000 }: RateLimitO
         },
         onRequestEnd({ request, server }: OnRequestEndType<{ rateLimiter: RateLimiter }>) {
             try {
-                const ip = request.client.ip
+                const ip = request.client?.ip || "*"
                 const allowed = server.rateLimiter.check(ip);
                 if (!allowed)
                     throw new Error(JSON.stringify([{

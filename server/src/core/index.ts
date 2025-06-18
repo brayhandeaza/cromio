@@ -67,6 +67,7 @@ export class Server<TInjected extends object = {}> {
 
         clients.forEach(client => this.clients.set(client.secretKey, Object.assign(client, {
             ip: client.ip || "*",
+            language: client.language || "*"
         })));
 
         this.extensions = new Extensions();
@@ -246,6 +247,7 @@ export class Server<TInjected extends object = {}> {
                 trigger: name,
                 credentials: Object.assign(credentials, {
                     ip: credentials.ip || "*",
+                    language: credentials.language || "*"
                 }),
                 body: payload,
                 reply: (data: any) => {
@@ -560,8 +562,8 @@ export class Server<TInjected extends object = {}> {
                 if (responded) {
                     if (this.logs) this.Logs.trigger({
                         trigger: context.trigger,
-                        language: context.credentials.language,
-                        ip: context.credentials.ip,
+                        language: context.credentials.language || "*",
+                        ip: context.credentials.ip || "*",
                     });
 
                     context.reply(responsePayload);
@@ -578,8 +580,8 @@ export class Server<TInjected extends object = {}> {
 
                 if (this.logs) this.Logs.error({
                     trigger: context.trigger,
-                    language: context.credentials.language,
-                    ip: context.credentials.ip,
+                    language: context.credentials.language || "*",
+                    ip: context.credentials.ip || "*",
                     message: error.message
                 });
 
@@ -602,7 +604,7 @@ export class Server<TInjected extends object = {}> {
                     passed: false,
                     message: `🚫 Authentication Failed: Client at ip=${credentials.ip} provided an invalid secretKey`,
                 };
-            case client?.language !== credentials.language:
+            case client?.language !== credentials.language  && client?.language !== "*":
                 return {
                     passed: false,
                     message: `🚫 Invalid Language: '${credentials.language}' not allowed for ip=${credentials.ip} — expected '${client.language}'`,

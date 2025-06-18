@@ -2,13 +2,13 @@ import { EncodingType } from '.';
 import { LOAD_BALANCER } from '../constants';
 import { TSLOptions } from './server';
 
-export interface SecretKeyType {
+export type SecretKeyType = {
     secretKey: string;
 }
 
-export interface CredentialsType extends SecretKeyType {
-    ip: string;
-    language: 'nodejs' | 'python';
+export type CredentialsType = SecretKeyType & {
+    ip?: string;
+    language?: 'nodejs' | 'python' | '*';
 }
 
 export type ClientContructorType = {
@@ -19,12 +19,9 @@ export type ClientContructorType = {
     credentials?: SecretKeyType;
 }
 
-export type ClientType = {
-    secretKey: string;
-    language: 'nodejs' | 'python';
-    ip?: string;
+export type ClientType = CredentialsType & {
+    name?: string;
 }
-
 
 export type ServerOptions = {
     url: string;
