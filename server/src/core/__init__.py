@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Optional, Set, TypedDict
+from typing import Any, Callable, Dict, Optional, Set
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 import socket
@@ -9,18 +9,7 @@ import sys
 import gzip
 import base64
 import threading
-
-
-class TLSType(TypedDict):
-    cert: str
-    key: str
-
-
-class OptionsType(TypedDict, total=False):
-    host: Optional[str]
-    port: Optional[int]
-    backlog: Optional[int]
-    tls: Optional[TLSType]
+from src.core.types import OptionsType, TLSType
 
 
 class Server:

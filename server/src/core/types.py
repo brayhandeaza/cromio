@@ -1,18 +1,14 @@
-from typing import Any, Awaitable, Callable, Dict, Literal, Optional, TypedDict
+from typing import Any, Callable, Dict, Optional, Set, TypedDict
 
 
-class CredentialsType(TypedDict):
-    ip: Optional[str]
-    language: Optional[Literal['nodejs', 'python', '*']]
+class TLSType(TypedDict):
+    cert: str
+    key: str
 
 
-class ClientType(CredentialsType, total=False):
-    name: Optional[str]
+class OptionsType(TypedDict, total=False):
+    host: Optional[str]
+    port: Optional[int]
+    backlog: Optional[int]
+    tls: Optional[TLSType]
 
-
-ClientType = Dict[str, Any]
-
-TriggerHandler = Dict[str, Callable[
-    [Any, ClientType, Callable[[Any], None]],
-    Awaitable[Any]
-]]
