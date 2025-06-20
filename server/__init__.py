@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from src.core.extensions import Extension
 from src.core import Server
 
@@ -17,12 +18,16 @@ server = Server()
 server.add_extension(LoggerExtension())
 
 
-@server.on_trigger("add")
+class UserSchema(BaseModel):
+    num1: int
+    num2: int
+
+
+@server.on_trigger("add", schema=UserSchema)
 def sum(ctx: dict):
     body: dict = ctx.get("body", {})
 
     server.age = 20 + server.age
-
     server.log(f"Hello {server.age}")  # [LOG] Hello
 
     a = body.get("num1", 0)

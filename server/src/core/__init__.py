@@ -1,4 +1,5 @@
 from typing import Any, Callable, Dict, Optional, Set
+import pydantic
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 import socket
@@ -24,8 +25,13 @@ class Server:
         self.extensions = Extensions()
         self.port = options.get("port", 2000)
         self.clients = options.get("clients", [])
+        self._schema = None
+        self.schemas: dict[str, pydantic.BaseModel] = {}
 
-    def on_trigger(self, trigger_name: str, handler: Optional[Callable[[Dict[str, Any]], Any]] = None):
+    def on_trigger(self, trigger_name: str, handler: Optional[Callable[[Dict[str, Any]], Any]] = None, schema: pydantic.BaseModel = None):
+        if schema:
+            self.schemas[trigger_name] = schema
+
         def decorator(fn: Callable[[Dict[str, Any]], Any]):
             self.triggers.add(trigger_name)
             self._secret_trigger_handlers[trigger_name] = fn
@@ -60,6 +66,31 @@ class Server:
         start = time.perf_counter()
         trigger_name = body.get("trigger", "")
         payload = body.get("payload", {})
+
+        Schema = self.schemas.get(trigger_name)
+        if Schema:
+            try:
+                Schema(**payload)
+            except pydantic.ValidationError as e:
+                error_messages = {}
+
+                for error in e.errors():
+                    loc = ".".join(str(i) for i in error["loc"])
+                    msg = error["msg"]
+                    error_messages[loc] = msg
+
+                # Send structured error response
+                response = {
+                    "error": {
+                        "messages": error_messages
+                    }
+                }
+
+                compressed = gzip.compress(
+                    json.dumps(response).encode("utf-8")
+                )
+
+                return reply(compressed)
 
         # Special: decompress Base64 gzip inside payload["message"] if present
         if "message" in payload and isinstance(payload["message"], str):
