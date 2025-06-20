@@ -1,25 +1,29 @@
+from src.core.extensions import Extension
 from src.core import Server
 
 
-class LoggerExtension:
+class LoggerExtension(Extension):
     def inject_properties(self, server):
-        return {"log": lambda msg: print(f"[LOG] {msg}")}
-
-    def on_request_begin(self, context):
-        print("Request started")
+        return {
+            "age": 10,
+            "log": lambda msg: print(f"[LOG] {msg}")
+        }
 
 
 # Example usage
 server = Server()
 
+# Add LoggerExtension
 server.add_extension(LoggerExtension())
 
 
 @server.on_trigger("add")
 def sum(ctx: dict):
     body: dict = ctx.get("body", {})
-    
-    server.log(f"Hello")  # [LOG] Hello
+
+    server.age = 20 + server.age
+
+    server.log(f"Hello {server.age}")  # [LOG] Hello
 
     a = body.get("num1", 0)
     b = body.get("num2", 0)

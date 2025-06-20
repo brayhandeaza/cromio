@@ -9,7 +9,9 @@ import sys
 import gzip
 import base64
 import threading
-from src.core.extensions import Extensions
+import time
+from src.constants import ALLOWED_EXTENSION_METHODS
+from src.core.extensions import Extensions, ExtensionSpec
 from src.core.types import OptionsType, TLSType
 
 
@@ -30,21 +32,33 @@ class Server:
             return fn
 
         return decorator if handler is None else decorator(handler)
-    
-    def add_extension(self, *exts: Any) -> None:
-        for ext in exts:
-            # If extension has 'inject_properties', call it and merge returned props into self
-            inject_func = getattr(ext, "inject_properties", None)
-            if callable(inject_func):
-                injected = inject_func(self)
-                if isinstance(injected, dict):
-                    for key, value in injected.items():
-                        setattr(self, key, value)
 
-            self.extensions.use_extension(ext)
+    def add_extension(self, ext):
+        # 1. Validate that only allowed methods are defined
+        user_methods = {
+            name for name in dir(ext)
+            if callable(getattr(ext, name)) and not name.startswith("__")
+        }
+
+        extra_methods = user_methods - ALLOWED_EXTENSION_METHODS
+        if extra_methods:
+            raise ValueError(
+                f"Invalid extension methods {', '.join(extra_methods)}"
+            )
+
+        # 2. Inject properties if available
+        inject = getattr(ext, "inject_properties", None)
+        if callable(inject):
+            injected = inject(self)
+            for key, value in injected.items():
+                setattr(self, key, value)
+
+        # 3. Register the extension
+        self.extensions.use_extension(ext)
 
     def _handle_request(self, body: Dict[str, Any], reply: Callable[[bytes], None]):
-        trigger_name = body.get("trigger")
+        start = time.perf_counter()
+        trigger_name = body.get("trigger", "")
         payload = body.get("payload", {})
 
         # Special: decompress Base64 gzip inside payload["message"] if present
@@ -54,6 +68,7 @@ class Server:
                 decompressed = gzip.decompress(decoded)
                 # Replace payload with decompressed JSON object if possible
                 payload = json.loads(decompressed.decode("utf-8"))
+
             except Exception as e:
                 print(f"❗ Error decompressing payload message: {e}")
 
@@ -68,6 +83,15 @@ class Server:
             "body": payload,
         }
 
+        self.extensions.trigger_hook("on_request_begin", {
+            "request": {
+                "trigger": trigger_name,
+                "body": payload,
+                "credentials": body.get("credentials", {}),
+            },
+            "server": self
+        })
+
         try:
             for middleware in self.global_middlewares:
                 middleware(context)
@@ -77,6 +101,24 @@ class Server:
             compressed = gzip.compress(json.dumps(
                 {"data": result}).encode("utf-8")
             )
+
+            end = time.perf_counter() - start
+            self.extensions.trigger_hook("on_request_end", {
+                "request": {
+                    "trigger": trigger_name,
+                    "body": payload,
+                    "credentials": body.get("credentials", {}),
+                },
+                "server": self,
+                "response": {
+                    "status": 200,
+                    "data": result,
+                    "performance": {
+                        "size": len(compressed),
+                        "time": end
+                    }
+                }
+            })
 
             return reply(compressed)
 
@@ -114,6 +156,7 @@ class Server:
 
             return func
 
+        self.extensions.trigger_hook("on_start", {"server": self})
         return decorator
 
     def _create_https_server(self, options: OptionsType, callback: Callable[[str], None]) -> str:
