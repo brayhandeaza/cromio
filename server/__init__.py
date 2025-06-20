@@ -15,11 +15,9 @@ server = Server({
 def sum(ctx: dict):
     body: dict = ctx.get("payload", {})
     
-    
     a = body.get("num1", 0)
     b = body.get("num2", 0)
     
-    print(f"Adding {a} + {b}")
     return a + b
 
 @server.start()

@@ -27,7 +27,6 @@ class Server:
     def on_trigger(self, trigger_name: str, handler: Optional[Callable[[Dict[str, Any]], Any]] = None):
         def decorator(fn: Callable[[Dict[str, Any]], Any]):
             self.triggers.add(trigger_name)
-            print(f"Registered trigger: {trigger_name}")
             self._secret_trigger_handlers[trigger_name] = fn
             return fn
 
@@ -63,13 +62,6 @@ class Server:
                 middleware(context)
 
             result = self._secret_trigger_handlers[trigger_name](context)
-            print(result)
-
-            # if isinstance(result, bytes):
-            #     compressed = gzip.compress(result)
-            # elif isinstance(result, str):
-            #     compressed = gzip.compress(result.encode("utf-8"))
-            # else:
             compressed = gzip.compress(json.dumps(
                 {"data": result}).encode("utf-8")
             )
