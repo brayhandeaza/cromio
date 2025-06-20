@@ -271,17 +271,16 @@ export class Server<TInjected extends object = {}> {
             const server = http.createServer((req, res) => {
                 if (req.method !== 'POST') return res.end(zlib.gzipSync(JSON.stringify({ error: { message: 'Only POST requests are allowed.' } })));
 
-                let body = '';
-                req.on('data', (chunk) => { body += chunk });
+                const chunks: Buffer[] = [];
+                req.on('data', (chunk) => chunks.push(chunk));
 
                 req.on('end', async () => {
                     try {
                         const start = performance.now();
-                        const bodySchema = z.object({ message: z.string() });
-
-                        const { message } = await bodySchema.parseAsync(JSON.parse(body));
-                        const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
-                        const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
+                        const buffer = Buffer.concat(chunks);
+                    
+                        const data = zlib.gunzipSync(buffer).toString();
+                        const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data.toString()));
 
                         const auth = this.verifyClient(credentials);
                         if (auth.passed) {
@@ -604,7 +603,7 @@ export class Server<TInjected extends object = {}> {
                     passed: false,
                     message: `🚫 Authentication Failed: Client at ip=${credentials.ip} provided an invalid secretKey`,
                 };
-            case client?.language !== credentials.language  && client?.language !== "*":
+            case client?.language !== credentials.language && client?.language !== "*":
                 return {
                     passed: false,
                     message: `🚫 Invalid Language: '${credentials.language}' not allowed for ip=${credentials.ip} — expected '${client.language}'`,
