@@ -3,7 +3,7 @@ import { ip } from 'address';
 import { ClientType, TriggerCallback, ServerOptionsType, OnTriggerType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension, TSLOptions } from '../types';
 import { Extensions } from './extensions';
 import { ClientMessageDataType } from '../auth/server';
-import { Schema, z } from 'zod';
+import { z } from 'zod';
 import { createGzip } from 'zlib';
 import { performance } from 'perf_hooks';
 import { PassThrough } from 'stream';
@@ -49,7 +49,7 @@ export class Server<TInjected extends object = {}> {
     private globalMiddlewares: TriggerCallback[] = [];
     public clients = new Map<string, ClientType>();
     private tls: TSLOptions | undefined
-    private _schema?: z.infer<z.ZodObject<any>>
+    private _schema?: z.infer<z.ZodObject<Record<string, z.ZodTypeAny>>>
 
 
     private Logs = {
@@ -243,19 +243,6 @@ export class Server<TInjected extends object = {}> {
         this.triggerHandlers.set(name, async (payload, credentials, reply) => {
             let responseSent = false;
 
-            if (this._schema) {
-                const parsed = this._schema.safeParse(payload);
-                if (!parsed.success) {
-                    const messages = parsed.error.errors.map((e: any) => `${e?.path?.join('.')}: ${e?.message}`);
-                    return reply({
-                        error: 'Validation Failed',
-                        messages,
-                    });
-                }
-            }
-
-
-
             const context: OnTriggerType = {
                 server: {
                     ...this,
@@ -297,11 +284,20 @@ export class Server<TInjected extends object = {}> {
 
                 req.on('end', async () => {
                     try {
+                        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' });
                         const start = performance.now();
                         const buffer = Buffer.concat(chunks);
 
                         const data = zlib.gunzipSync(buffer).toString();
                         const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data.toString()));
+
+                        if (this._schema) {
+                            const parsed = this._schema.safeParse(payload);
+                            if (!parsed.success) {
+                                const messages = parsed.error.errors.map((e: any) => `${e?.path?.join('.')}: ${e?.message}`);
+                                return res.end(zlib.gzipSync(JSON.stringify({ error: { messages } })));
+                            }
+                        }
 
                         const auth = this.verifyClient(credentials);
                         if (auth.passed) {
@@ -346,7 +342,6 @@ export class Server<TInjected extends object = {}> {
 
                                         } else {
                                             const message = zlib.gzipSync(JSON.stringify(safeData));
-                                            res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' });
                                             res.end(message);
                                             resolve(null);
                                         }
@@ -499,8 +494,6 @@ export class Server<TInjected extends object = {}> {
     }
 
     private streamJsonData(res: ServerResponse, code: number, safeData: any) {
-        // res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' }); // content buffer
-
         const stream = new PassThrough();
         const gzip = createGzip();
 

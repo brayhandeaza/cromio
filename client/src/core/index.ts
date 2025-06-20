@@ -25,7 +25,7 @@ export class Client<TInjected extends object = {}> {
     public showRequestInfo: boolean
     private client: (_: { server: ServersType, request: any }) => Got<ExtendOptions>
 
-    constructor({ servers, showRequestInfo = true, loadBalancerStrategy = LOAD_BALANCER.BEST_BIASED }: ClientOptionsType) {
+    constructor({ servers, showRequestInfo = false, loadBalancerStrategy = LOAD_BALANCER.BEST_BIASED }: ClientOptionsType) {
         this.loadBalancerStrategy = loadBalancerStrategy
         this.showRequestInfo = showRequestInfo
         this.extensions = new Extensions();
