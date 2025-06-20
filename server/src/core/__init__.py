@@ -30,6 +30,18 @@ class Server:
             return fn
 
         return decorator if handler is None else decorator(handler)
+    
+    def add_extension(self, *exts: Any) -> None:
+        for ext in exts:
+            # If extension has 'inject_properties', call it and merge returned props into self
+            inject_func = getattr(ext, "inject_properties", None)
+            if callable(inject_func):
+                injected = inject_func(self)
+                if isinstance(injected, dict):
+                    for key, value in injected.items():
+                        setattr(self, key, value)
+
+            self.extensions.use_extension(ext)
 
     def _handle_request(self, body: Dict[str, Any], reply: Callable[[bytes], None]):
         trigger_name = body.get("trigger")
