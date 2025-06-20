@@ -1,24 +1,31 @@
-import json
 from src.core import Server
 
 
+class LoggerExtension:
+    def inject_properties(self, server):
+        return {"log": lambda msg: print(f"[LOG] {msg}")}
+
+    def on_request_start(self, context):
+        print("Request started")
+
+
 # Example usage
-server = Server({
-    # "tls": {
-    #     "key": "./server.key",
-    #     "cert": "./server.crt"
-    # }
-})
+server = Server()
+
+# server.add_extension(LoggerExtension())
 
 
 @server.on_trigger("add")
 def sum(ctx: dict):
-    body: dict = ctx.get("payload", {})
+    body: dict = ctx.get("body", {})
     
+    # server.log(f"Hello")  # [LOG] Hello
+
     a = body.get("num1", 0)
     b = body.get("num2", 0)
-    
+
     return a + b
+
 
 @server.start()
 def callback(url: str):

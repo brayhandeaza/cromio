@@ -54,7 +54,7 @@ class Server:
 
         context = {
             "trigger": trigger_name,
-            "payload": payload,
+            "body": payload,
         }
 
         try:
@@ -62,6 +62,7 @@ class Server:
                 middleware(context)
 
             result = self._secret_trigger_handlers[trigger_name](context)
+            
             compressed = gzip.compress(json.dumps(
                 {"data": result}).encode("utf-8")
             )
@@ -154,7 +155,7 @@ class Server:
                 except Exception as e:
                     print(f"‼️ Error handling new connection: {e}")
 
-            return url
+        return url
 
     def _create_http_server(self, options: OptionsType, callback: Callable[[str], None]) -> str:
         HOST, PORT = options.get("host", "0.0.0.0"), options.get("port", 2000)
