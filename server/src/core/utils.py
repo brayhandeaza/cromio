@@ -1,4 +1,6 @@
-from typing import Callable, TypedDict, Optional
+from typing import Any, Callable, TypedDict, Optional
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 import socket
 import ssl
 import json
@@ -43,19 +45,15 @@ class ServerDefinition:
                         if not data:
                             continue
 
-                        request_line, headers, json_body = ServerDefinition.parse_http_request(
-                            data)
-
-                        print(
-                            json.dumps(
-                                {
-                                    "request_line": request_line,
-                                    "headers": headers,
-                                    "json_body": json_body,
-                                },
-                                indent=4,
-                            )
+                        request_line, body = ServerDefinition.parse_http_request(
+                            data
                         )
+
+                        method = request_line[0]
+                        if method != "POST":
+                            continue
+
+                        print(json.dumps({"body": body},  indent=4))
 
                         response_body = "Received your request.\n"
                         response = (
@@ -100,7 +98,7 @@ class ServerDefinition:
                         data
                     )
 
-                    method = request_line
+                    method = request_line[0]
                     if method != "POST":
                         continue
 
@@ -114,6 +112,7 @@ class ServerDefinition:
                             indent=4,
                         )
                     )
+
                     response_body = "Received your request.\n"
                     response = (
                         "HTTP/1.1 200 OK\r\n"
@@ -133,41 +132,56 @@ class ServerDefinition:
         return url
 
     @staticmethod
-    def parse_http_request(data_bytes):
+    def parse_http_request(data_bytes: bytes) -> tuple[Any, ...]:
         try:
             data = data_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            return None, None, None
 
-        # Split headers and body
-        parts = data.split("\r\n\r\n", 1)
-        header_part = parts[0]
-        body_part = parts[1] if len(parts) > 1 else ""
+            # Split headers and body
+            parts = data.split("\r\n\r\n", 1)
+            body_part = parts[1] if len(parts) > 1 else ""
+            header_part = parts[0]
 
-        # Split request line and headers
-        lines = header_part.split("\r\n")
-        request_line = lines[0]
-        header_lines = lines[1:]
+            # Split request line and headers
+            lines = header_part.split("\r\n")
+            request_line = lines[0]
+            header_lines = lines[1:]
 
-        # Parse request line
-        try:
+            # Parse request line
             method, path, http_version = request_line.split()
-        except ValueError:
-            method = path = http_version = None
 
-        # Parse headers into dict
-        headers = {}
-        for line in header_lines:
-            if ": " in line:
-                key, val = line.split(": ", 1)
-                headers[key.lower()] = val.strip()
+            # Parse headers into dict
+            headers = {}
+            for line in header_lines:
+                if ": " in line:
+                    key, val = line.split(": ", 1)
+                    headers[key.lower()] = val.strip()
 
-        # Parse JSON body if content-type is json
-        json_body = None
-        if headers.get("content-type", "").startswith("application/json") and body_part:
-            try:
+            # Parse JSON body if applicable
+            json_body = None
+            if headers.get("content-type", "").startswith("application/json") and body_part:
                 json_body = json.loads(body_part)
-            except json.JSONDecodeError:
-                json_body = None
 
-        return (method, path, http_version), headers, json_body
+            return [method, path, http_version], json_body, headers
+
+        except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as e:
+            return [None, None, None], None, None
+
+
+
+
+
+class _ReloadHandler(FileSystemEventHandler):
+    def __init__(self, restart_callback: Callable[[], None]):
+        self.restart_callback = restart_callback
+
+    def on_any_event(self, event):
+        if event.src_path.endswith(".py"):
+            print(f"🔄 Change detected: {event.src_path}")
+            self.restart_callback()
+
+
+def _start_file_watcher(restart_callback: Callable[[], None]):
+    observer = Observer()
+    handler = _ReloadHandler(restart_callback)
+    observer.schedule(handler, path=".", recursive=True)
+    observer.start()
