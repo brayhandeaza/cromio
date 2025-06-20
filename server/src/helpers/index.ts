@@ -33,6 +33,5 @@ export const calculateConcurrency = (memoryUsedMB: number): number => {
 }
 
 
-
 export const gzip = promisify(zlib.gzip);
 export const unzip = promisify(zlib.unzip);

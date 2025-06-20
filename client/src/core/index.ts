@@ -218,8 +218,8 @@ export class Client<TInjected extends object = {}> {
                 responseType: 'buffer',
                 ...secureHttps
             })
-
-            const response = zlib.gunzipSync(body).toString('utf8');
+            
+            const response = body.toString('utf8');
             const end = performance.now();
             const bytes = body.length;
 

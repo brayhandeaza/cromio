@@ -3,7 +3,7 @@ import { ip } from 'address';
 import { ClientType, TriggerCallback, ServerOptionsType, OnTriggerType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension, TSLOptions } from '../types';
 import { Extensions } from './extensions';
 import { ClientMessageDataType } from '../auth/server';
-import { z } from 'zod';
+import { Schema, z } from 'zod';
 import { createGzip } from 'zlib';
 import { performance } from 'perf_hooks';
 import { PassThrough } from 'stream';
@@ -49,6 +49,8 @@ export class Server<TInjected extends object = {}> {
     private globalMiddlewares: TriggerCallback[] = [];
     public clients = new Map<string, ClientType>();
     private tls: TSLOptions | undefined
+    private _schema?: z.infer<z.ZodObject<any>>
+
 
     private Logs = {
         trigger: ({ trigger, language, ip }: LogsType) => {
@@ -203,6 +205,11 @@ export class Server<TInjected extends object = {}> {
         })
     }
 
+    public schema(schema: z.infer<z.ZodObject<Record<string, z.ZodTypeAny>>>): this {
+        this._schema = schema;
+        return this;
+    }
+
     /**
         * Registers a trigger handler for a given RPC method name.
         *
@@ -236,6 +243,19 @@ export class Server<TInjected extends object = {}> {
         this.triggerHandlers.set(name, async (payload, credentials, reply) => {
             let responseSent = false;
 
+            if (this._schema) {
+                const parsed = this._schema.safeParse(payload);
+                if (!parsed.success) {
+                    const messages = parsed.error.errors.map((e: any) => `${e?.path?.join('.')}: ${e?.message}`);
+                    return reply({
+                        error: 'Validation Failed',
+                        messages,
+                    });
+                }
+            }
+
+
+
             const context: OnTriggerType = {
                 server: {
                     ...this,
@@ -264,6 +284,7 @@ export class Server<TInjected extends object = {}> {
                 reply(result === undefined ? undefined : result);
             }
         });
+
     }
 
     private createHttpServer = async (): Promise<http.Server> => {
@@ -278,7 +299,7 @@ export class Server<TInjected extends object = {}> {
                     try {
                         const start = performance.now();
                         const buffer = Buffer.concat(chunks);
-                    
+
                         const data = zlib.gunzipSync(buffer).toString();
                         const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data.toString()));
 
@@ -325,6 +346,7 @@ export class Server<TInjected extends object = {}> {
 
                                         } else {
                                             const message = zlib.gzipSync(JSON.stringify(safeData));
+                                            res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' });
                                             res.end(message);
                                             resolve(null);
                                         }
