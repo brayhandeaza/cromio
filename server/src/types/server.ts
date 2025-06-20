@@ -33,7 +33,6 @@ export type ServerExtension<TInjected extends object = any> = {
     onRequestEnd?(ctx: OnRequestEndType): void;
     onRequestBegin?(ctx: OnRequestBeginType): void;
     onError?(ctx: OnErrorType): void;
-    onStop?(ctx: { server: Server<TInjected> & TInjected }): void;
 };
 
 export type TriggerType = {
