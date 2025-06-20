@@ -9,6 +9,7 @@ import sys
 import gzip
 import base64
 import threading
+from src.core.extensions import Extensions
 from src.core.types import OptionsType, TLSType
 
 
@@ -18,11 +19,9 @@ class Server:
         self._secret_trigger_handlers: dict[str, Callable] = {}
         self.triggers: Set[str] = set()
         self.global_middlewares: list[Callable] = []
-        self.logs = False
-        self.Logs = None
-        self.extensions = None
-        self.port = 0
-        self.clients = {}
+        self.extensions = Extensions()
+        self.port = options.get("port", 2000)
+        self.clients = options.get("clients", [])
 
     def on_trigger(self, trigger_name: str, handler: Optional[Callable[[Dict[str, Any]], Any]] = None):
         def decorator(fn: Callable[[Dict[str, Any]], Any]):
@@ -62,7 +61,7 @@ class Server:
                 middleware(context)
 
             result = self._secret_trigger_handlers[trigger_name](context)
-            
+
             compressed = gzip.compress(json.dumps(
                 {"data": result}).encode("utf-8")
             )
