@@ -1,33 +1,12 @@
-from pydantic import BaseModel, StrictInt
-from src.core.extensions import Extension
-from src.core import Server
+from src import Server
 
 
-class LoggerExtension(Extension):
-    def inject_properties(self, server):
-        return {
-            "age": 10,
-            "log": lambda msg: print(f"[LOG] {msg}")
-        }
-
-
-# Example usage
 server = Server()
 
-# Add LoggerExtension
-server.add_extension(LoggerExtension())
 
-
-class UserSchema(BaseModel):
-    num1: StrictInt
-    num2: StrictInt
-    
-@server.on_trigger("add", schema=UserSchema)
+@server.on_trigger("add")
 def sum(ctx: dict):
     body: dict = ctx.get("body", {})
-
-    server.age = 20 + server.age
-    server.log(f"Hello {server.age}")  # [LOG] Hello
 
     a = body.get("num1", 0)
     b = body.get("num2", 0)

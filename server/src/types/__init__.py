@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Set, TypedDict
+from typing import Any, Dict, List, Optional, Set, TypedDict
 
 
 class TLSType(TypedDict):
