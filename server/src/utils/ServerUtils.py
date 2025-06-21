@@ -8,7 +8,7 @@ import time
 from typing import Any, Callable, Dict, Optional
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-from src.types import OptionsType
+from src.typing import OnTriggerType, OptionsType
 
 
 class ServerUtils:
@@ -131,7 +131,15 @@ class ServerUtils:
         if not trigger_name or trigger_name not in server._secret_trigger_handlers:
             return reply(gzip.compress(json.dumps({"error": f"Unknown or missing trigger: {trigger_name}"}).encode("utf-8")))
 
-        context = {"trigger": trigger_name, "body": payload}
+        context = OnTriggerType(
+            trigger=trigger_name, body=payload, credentials=credentials, server=server)
+
+        # context = {
+        #     "trigger": trigger_name,
+        #     "body": payload,
+        #     "server": server,
+        #     "credentials": credentials,
+        # }
 
         server.extensions.trigger_hook("on_request_begin", {
             "request": {

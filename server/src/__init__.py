@@ -2,14 +2,16 @@ import pydantic
 import os
 import sys
 import threading
-from typing import Any, Callable, Dict, Optional, Set
+from typing import Any, Callable, Dict, Optional, Set, TypeVar, Generic
 from src.constants import ALLOWED_EXTENSION_METHODS
 from src.extensions import Extensions
-from src.types import OptionsType
+from src.typing import OptionsType
 from src.utils import Utils
 
+T = TypeVar("T", bound=Dict[str, Any])
 
-class Server:
+
+class Server(Generic[T]):
     def __init__(self, options: Optional[OptionsType] = {}):
         self._secret_options = options or {}
         self._secret_trigger_handlers: dict[str, Callable] = {}
