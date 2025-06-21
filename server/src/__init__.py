@@ -5,7 +5,7 @@ import threading
 from typing import Any, Callable, Dict, Optional, Set, TypeVar, Generic
 from src.constants import ALLOWED_EXTENSION_METHODS
 from src.extensions import Extensions
-from src.typing import OptionsType
+from src.typing import OnTriggerType, OptionsType
 from src.utils import Utils
 
 T = TypeVar("T", bound=Dict[str, Any])
@@ -33,6 +33,13 @@ class Server(Generic[T]):
             return fn
 
         return decorator if handler is None else decorator(handler)
+
+    def register_trigger_definition(self, definition):
+        triggers: Dict[str, Callable[[OnTriggerType], Any]] = definition.all()
+
+        for name, handler in triggers.items():
+            self.triggers.add(name)
+            self._secret_trigger_handlers[name] = handler
 
     def add_extension(self, ext):
         user_methods = {

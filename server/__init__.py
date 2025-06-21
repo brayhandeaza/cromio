@@ -1,29 +1,20 @@
 from src.typing import OnTriggerType
-from src.extensions import Extension
 from src import Server
+from src.utils.TriggerDefinition import TriggerDefinition
+
+calculator = TriggerDefinition()
 
 
-
-# 2. Logger Extension
-class LoggerExtension(Extension):
-    def inject_properties(self, server):    
-        return {
-            "age": 10,
-            "log": lambda msg: print(f"[LOG] {msg}")
-        }
-
-
-server = Server()
-
-
-@server.on_trigger("add")
+@calculator("add")
 def sum(ctx: OnTriggerType):
     a = ctx.get("body").get("num1", 0)
     b = ctx.get("body").get("num2", 0)
-    
-    
 
-    return a + b
+    return a - b
+
+
+server = Server()
+server.register_trigger_definition(calculator)
 
 
 # 5. Start server
