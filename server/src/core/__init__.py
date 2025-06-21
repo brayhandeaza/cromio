@@ -12,8 +12,8 @@ import base64
 import threading
 import time
 from src.constants import ALLOWED_EXTENSION_METHODS
-from src.core.extensions import Extensions, ExtensionSpec
-from src.core.types import OptionsType, TLSType
+from src.core.extensions import Extensions
+from src.core.types import OptionsType
 
 
 class Server:
@@ -62,15 +62,13 @@ class Server:
         # 3. Register the extension
         self.extensions.use_extension(ext)
 
-    def _handle_request(self, body: Dict[str, Any], reply: Callable[[bytes], None]):
-        start = time.perf_counter()
-        trigger_name = body.get("trigger", "")
-        payload = body.get("payload", {})
-
+    def _validate_schema(self, trigger_name: str, payload: dict):
         Schema = self.schemas.get(trigger_name)
         if Schema:
             try:
                 Schema(**payload)
+                return None
+                
             except pydantic.ValidationError as e:
                 error_messages = {}
 
@@ -78,21 +76,32 @@ class Server:
                     loc = ".".join(str(i) for i in error["loc"])
                     msg = error["msg"]
                     error_messages[loc] = msg
-
-                # Send structured error response
+                    
                 response = {
                     "error": {
                         "messages": error_messages
                     }
                 }
+                
+                return response
 
-                compressed = gzip.compress(
-                    json.dumps(response).encode("utf-8")
-                )
+        return None
 
-                return reply(compressed)
+    def _handle_request(self, body: Dict[str, Any], reply: Callable[[bytes], None]):
+        start = time.perf_counter()
+        trigger_name = body.get("trigger", "")
+        payload = body.get("payload", {})
+        
+        
+        has_error = self._validate_schema(trigger_name, payload)
+        
+        if has_error:
+            compressed = gzip.compress(
+                json.dumps(has_error).encode("utf-8")
+            )
 
-        # Special: decompress Base64 gzip inside payload["message"] if present
+            return reply(compressed)
+
         if "message" in payload and isinstance(payload["message"], str):
             try:
                 decoded = base64.b64decode(payload["message"])

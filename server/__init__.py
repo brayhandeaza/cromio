@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictInt
 from src.core.extensions import Extension
 from src.core import Server
 
@@ -19,8 +19,8 @@ server.add_extension(LoggerExtension())
 
 
 class UserSchema(BaseModel):
-    num1: int
-    num2: int
+    num1: StrictInt
+    num2: StrictInt
 
 
 @server.on_trigger("add", schema=UserSchema)
