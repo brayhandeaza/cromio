@@ -21,8 +21,7 @@ server.add_extension(LoggerExtension())
 class UserSchema(BaseModel):
     num1: StrictInt
     num2: StrictInt
-
-
+    
 @server.on_trigger("add", schema=UserSchema)
 def sum(ctx: dict):
     body: dict = ctx.get("body", {})
