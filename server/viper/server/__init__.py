@@ -1,7 +1,9 @@
+import os
+import sys
+import threading
 import pydantic
 from typing import Any, Callable, Dict, Optional, Set, TypeVar, Generic
-from viper.constants import ALLOWED_EXTENSION_METHODS
-from viper.extensions import Extensions
+from viper.extensions.utils import Extensions
 from viper.typing import OptionsType
 from viper.utils import Utils
 
@@ -42,27 +44,29 @@ class Server(Generic[T]):
             if schema:
                 self.schemas[name] = schema
 
-    def add_extension(self, ext):
-        # user_methods = {
-        #     name for name in dir(ext)
-        #     if callable(getattr(ext, name)) and not name.startswith("__")
-        # }
+    def add_extension(self, *exts):
+        for ext in exts:
+            inject = getattr(ext, "inject_properties", None)
 
-        # extra_methods = user_methods - ALLOWED_EXTENSION_METHODS
-        # if extra_methods:
-        #     raise ValueError(
-        #         f"Invalid extension methods {', '.join(extra_methods)}")
+            if callable(inject):
+                injected = inject(self)
+                for key, value in injected.items():
+                    setattr(self, key, value)
 
-        inject = getattr(ext, "inject_properties", None)
-        if callable(inject):
-            injected = inject(self)
-            for key, value in injected.items():
-                setattr(self, key, value)
-
-        self.extensions.use_extension(ext)
+            self.extensions.use_extension(ext)
 
     def start(self) -> Callable[[Callable[[str], None]], Callable[[str], None]]:
         def decorator(func: Callable[[str], None]):
+            def restart():
+                print("\n♻️ Restarting server...")
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+
+            threading.Thread(
+                target=Utils.start_file_watcher,
+                args=(restart,),
+                daemon=True
+            ).start()
+
             def handle_incoming_request(payload: Dict[str, Any], reply: Callable[[bytes], None]):
                 Utils.handle_request(self, payload, reply)
 

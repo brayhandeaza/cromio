@@ -90,18 +90,18 @@ class ServerUtils:
             print(f"‼️ Unexpected error parsing HTTP request: {e}")
             return [None, None, None], {}, {}
 
-    # @staticmethod
-    # def start_file_watcher(restart_callback: Callable[[], None]):
-    #     class ReloadHandler(FileSystemEventHandler):
-    #         def on_any_event(self, event):
-    #             if event.src_path.endswith(".py"):
-    #                 print(f"🔄 Change detected: {event.src_path}")
-    #                 restart_callback()
+    @staticmethod
+    def start_file_watcher(restart_callback: Callable[[], None]):
+        class ReloadHandler(FileSystemEventHandler):
+            def on_any_event(self, event):
+                if event.src_path.endswith(".py"):
+                    print(f"🔄 Change detected: {event.src_path}")
+                    restart_callback()
 
-    #     observer = Observer()
-    #     handler = ReloadHandler()
-    #     observer.schedule(handler, path=".", recursive=True)
-    #     observer.start()
+        observer = Observer()
+        handler = ReloadHandler()
+        observer.schedule(handler, path=".", recursive=True)
+        observer.start()
 
     @staticmethod
     def handle_request(server, body: Dict[str, Any], reply: Callable[[bytes], None]):

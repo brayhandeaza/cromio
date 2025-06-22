@@ -1,5 +1,5 @@
 from .server import Server
-from .typing import *
+from .typing import OnRequestErrorType, OnRequestBeginType, OnRequestEndType, OnTriggerType
 from .utils.TriggerDefinition import TriggerDefinition
-from .extensions import BaseExtension
-
+from .extensions.utils import BaseExtension
+from .extensions import Extensions
