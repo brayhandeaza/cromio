@@ -62,7 +62,7 @@ export type OnRequestEndType<TInjected extends object = any> = {
     request: {
         trigger: string;
         client: CredentialsType;
-        payload: any;
+        body: any;
     };
     server: ServerExtensionsType<TInjected> & TInjected;
     response: {
@@ -132,7 +132,7 @@ export type OnRequestBeginType<TInjected extends object = any> = {
     request: {
         client: ClientTypes;
         trigger: string;
-        payload: any;
+        body: any;
     };
     server: ServerExtensionsType<TInjected> & TInjected & Server;
 };
