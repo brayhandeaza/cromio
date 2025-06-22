@@ -1,7 +1,7 @@
 from typing import Dict, List, Any, Protocol, runtime_checkable
 
 
-class Extension:
+class BaseExtension:
     def inject_properties(self, server):
         return {"log": lambda msg: print(f"[LOG] {msg}")}
 

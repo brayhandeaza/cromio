@@ -1,8 +1,10 @@
+# Python bytecode
 __pycache__
 
 # Directories
 build
 dist
+viper.egg-info
 
 # Files
 *.pyc
@@ -10,6 +12,7 @@ dist
 *.pem
 *.crt
 *.key
+*test.py
 
 # Editor directories and files
 *.vscode/*

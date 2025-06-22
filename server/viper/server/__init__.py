@@ -1,12 +1,9 @@
 import pydantic
-import os
-import sys
-import threading
 from typing import Any, Callable, Dict, Optional, Set, TypeVar, Generic
-from src.constants import ALLOWED_EXTENSION_METHODS
-from src.extensions import Extensions
-from src.typing import OnTriggerType, OptionsType
-from src.utils import Utils
+from viper.constants import ALLOWED_EXTENSION_METHODS
+from viper.extensions import Extensions
+from viper.typing import OptionsType
+from viper.utils import Utils
 
 T = TypeVar("T", bound=Dict[str, Any])
 
@@ -35,22 +32,26 @@ class Server(Generic[T]):
         return decorator if handler is None else decorator(handler)
 
     def register_trigger_definition(self, definition):
-        triggers: Dict[str, Callable[[OnTriggerType], Any]] = definition.all()
+        triggers: Dict[str, list[Callable]] = definition.all()
 
-        for name, handler in triggers.items():
+        for name, handlers in triggers.items():
+            handler, schema = handlers
             self.triggers.add(name)
             self._secret_trigger_handlers[name] = handler
 
-    def add_extension(self, ext):
-        user_methods = {
-            name for name in dir(ext)
-            if callable(getattr(ext, name)) and not name.startswith("__")
-        }
+            if schema:
+                self.schemas[name] = schema
 
-        extra_methods = user_methods - ALLOWED_EXTENSION_METHODS
-        if extra_methods:
-            raise ValueError(
-                f"Invalid extension methods {', '.join(extra_methods)}")
+    def add_extension(self, ext):
+        # user_methods = {
+        #     name for name in dir(ext)
+        #     if callable(getattr(ext, name)) and not name.startswith("__")
+        # }
+
+        # extra_methods = user_methods - ALLOWED_EXTENSION_METHODS
+        # if extra_methods:
+        #     raise ValueError(
+        #         f"Invalid extension methods {', '.join(extra_methods)}")
 
         inject = getattr(ext, "inject_properties", None)
         if callable(inject):
@@ -62,13 +63,6 @@ class Server(Generic[T]):
 
     def start(self) -> Callable[[Callable[[str], None]], Callable[[str], None]]:
         def decorator(func: Callable[[str], None]):
-            def restart():
-                print("♻️ Restarting server...")
-                os.execv(sys.executable, [sys.executable] + sys.argv)
-
-            threading.Thread(target=Utils.start_file_watcher,
-                             args=(restart,), daemon=True).start()
-
             def handle_incoming_request(payload: Dict[str, Any], reply: Callable[[bytes], None]):
                 Utils.handle_request(self, payload, reply)
 

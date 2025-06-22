@@ -8,7 +8,7 @@ import time
 from typing import Any, Callable, Dict, Optional
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-from src.typing import OnTriggerType, OptionsType
+from viper.typing import OnTriggerType, OptionsType
 
 
 class ServerUtils:
@@ -90,18 +90,18 @@ class ServerUtils:
             print(f"‼️ Unexpected error parsing HTTP request: {e}")
             return [None, None, None], {}, {}
 
-    @staticmethod
-    def start_file_watcher(restart_callback: Callable[[], None]):
-        class ReloadHandler(FileSystemEventHandler):
-            def on_any_event(self, event):
-                if event.src_path.endswith(".py"):
-                    print(f"🔄 Change detected: {event.src_path}")
-                    restart_callback()
+    # @staticmethod
+    # def start_file_watcher(restart_callback: Callable[[], None]):
+    #     class ReloadHandler(FileSystemEventHandler):
+    #         def on_any_event(self, event):
+    #             if event.src_path.endswith(".py"):
+    #                 print(f"🔄 Change detected: {event.src_path}")
+    #                 restart_callback()
 
-        observer = Observer()
-        handler = ReloadHandler()
-        observer.schedule(handler, path=".", recursive=True)
-        observer.start()
+    #     observer = Observer()
+    #     handler = ReloadHandler()
+    #     observer.schedule(handler, path=".", recursive=True)
+    #     observer.start()
 
     @staticmethod
     def handle_request(server, body: Dict[str, Any], reply: Callable[[bytes], None]):
@@ -119,6 +119,18 @@ class ServerUtils:
             }
         )
         if has_error:
+            server.extensions.trigger_hook("on_error", {
+                "request": {
+                    "trigger": trigger_name,
+                    "body": payload,
+                    "client": {
+                        "ip": credentials.get("ip"),
+                        "language": credentials.get("language")
+                    }
+                },
+                "server": server,
+                "error": has_error
+            })
             return reply(gzip.compress(json.dumps(has_error).encode("utf-8")))
 
         if "message" in payload and isinstance(payload["message"], str):
@@ -126,26 +138,47 @@ class ServerUtils:
                 decoded = base64.b64decode(payload["message"])
                 payload = json.loads(gzip.decompress(decoded).decode("utf-8"))
             except Exception as e:
+                server.extensions.trigger_hook("on_error", {
+                    "request": {
+                        "trigger": trigger_name,
+                        "body": payload,
+                        "client": {
+                            "ip": credentials.get("ip"),
+                            "language": credentials.get("language")
+                        }
+                    },
+                    "server": server,
+                    "error": f"Error decompressing payload message: {e}"
+                })
                 print(f"❗ Error decompressing payload message: {e}")
 
         if not trigger_name or trigger_name not in server._secret_trigger_handlers:
+            server.extensions.trigger_hook("on_error", {
+                "request": {
+                    "trigger": trigger_name,
+                    "body": payload,
+                    "client": {
+                        "ip": credentials.get("ip"),
+                        "language": credentials.get("language")
+                    }
+                },
+                "server": server,
+                "error": f"Unknown or missing trigger: {trigger_name}"
+            })
             return reply(gzip.compress(json.dumps({"error": f"Unknown or missing trigger: {trigger_name}"}).encode("utf-8")))
 
         context = OnTriggerType(
-            trigger=trigger_name, body=payload, credentials=credentials, server=server)
-
-        # context = {
-        #     "trigger": trigger_name,
-        #     "body": payload,
-        #     "server": server,
-        #     "credentials": credentials,
-        # }
+            trigger=trigger_name, body=payload, credentials=credentials, server=server
+        )
 
         server.extensions.trigger_hook("on_request_begin", {
             "request": {
                 "trigger": trigger_name,
                 "body": payload,
-                "credentials": credentials,
+                "client": {
+                    "ip": credentials.get("ip"),
+                    "language": credentials.get("language")
+                }
             },
             "server": server
         })
@@ -161,19 +194,37 @@ class ServerUtils:
             server.extensions.trigger_hook("on_request_end", {
                 "request": {
                     "trigger": trigger_name,
+                    "client": {
+                        "ip": credentials.get("ip"),
+                        "language": credentials.get("language")
+                    },
                     "body": payload,
-                    "credentials": credentials,
                 },
                 "server": server,
                 "response": {
                     "status": 200,
                     "data": result,
-                    "performance": {"size": len(compressed), "time": time.perf_counter() - start}
+                    "performance": {
+                        "size": len(compressed),
+                        "time": time.perf_counter() - start
+                    }
                 }
             })
 
             return reply(compressed)
         except Exception as e:
+            server.extensions.trigger_hook("on_error", {
+                "request": {
+                    "trigger": trigger_name,
+                    "body": payload,
+                    "client": {
+                        "ip": credentials.get("ip"),
+                        "language": credentials.get("language")
+                    },
+                },
+                "server": server,
+                "error": str(e)
+            })
             return reply(gzip.compress(json.dumps({"error": str(e)}).encode("utf-8")))
 
     @staticmethod
