@@ -26,7 +26,9 @@ class PrometheusExtension(BaseExtension):
         client = request.get("client", {})
         self.pending_requests.labels(trigger=trigger, client=client).inc()
 
-        self.callbacks.get("on_request_begin")(context)
+        on_request_begin_callback = self.callbacks.get("on_request_begin")
+        if on_request_begin_callback:
+            on_request_begin_callback(context)
 
     def on_request_end(self, context: OnRequestEndType):
         request = context.get("request", {})
@@ -55,7 +57,9 @@ class PrometheusExtension(BaseExtension):
             trigger=trigger, client=client
         ).dec()
 
-        self.callbacks.get("on_request_end")(context)
+        on_request_end_callback = self.callbacks.get("on_request_end")
+        if on_request_end_callback:
+            on_request_end_callback(context)
 
     def on_error(self, context: OnRequestErrorType):
         request = context.get("request", {})
@@ -71,4 +75,6 @@ class PrometheusExtension(BaseExtension):
             reason=reason
         ).inc()
 
-        self.callbacks.get("on_error")(context)
+        on_error_callback = self.callbacks.get("on_error")
+        if on_error_callback:
+            on_error_callback(context)

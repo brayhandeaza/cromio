@@ -2,26 +2,35 @@ import os
 import sys
 import threading
 import pydantic
-from typing import Any, Callable, Dict, Optional, Set, TypeVar, Generic
+from typing import Any, Callable, Dict, List, Optional, Set, TypeVar, Generic, TypedDict
 from viper.extensions.utils import Extensions
-from viper.typing import OptionsType
+from viper.typing import ClientsType, OptionsType, TLSType
 from viper.utils import Utils
 
 T = TypeVar("T", bound=Dict[str, Any])
 
+class OptionsType(TypedDict, total=False):
+    tls: Optional[TLSType]
+    port: Optional[int]
+    backlog: Optional[int]
+    clients: Optional[List[ClientsType]]
+
 
 class Server(Generic[T]):
-    def __init__(self, options: Optional[OptionsType] = {}):
-        self._secret_options = options or {}
+    def __init__(self, tls: Optional[TLSType] = None, host: Optional[str] = "localhost", port: Optional[int] = 2000, backlog: Optional[int] = 128, clients: Optional[List[ClientsType]] = None):
+        self.tls = tls
+        self.port = port or 2000
+        self.host = host or "localhost"
+        self.backlog = backlog or 128
+        self.clients = clients
+        
         self._secret_trigger_handlers: dict[str, Callable] = {}
         self.triggers: Set[str] = set()
         self.global_middlewares: list[Callable] = []
         self.extensions = Extensions()
-        self.port = options.get("port", 2000)
-        self.clients = options.get("clients", [])
         self._schema = None
         self.schemas: dict[str, pydantic.BaseModel] = {}
-
+        
     def on_trigger(self, trigger_name: str, handler: Optional[Callable[[Dict[str, Any]], Any]] = None, schema: pydantic.BaseModel = None):
         if schema:
             self.schemas[trigger_name] = schema
@@ -55,26 +64,27 @@ class Server(Generic[T]):
 
             self.extensions.use_extension(ext)
 
-    def start(self) -> Callable[[Callable[[str], None]], Callable[[str], None]]:
+    def start(self, watch: bool = False) -> Callable[[Callable[[str], None]], Callable[[str], None]]:
         def decorator(func: Callable[[str], None]):
-            def restart():
-                print("\n♻️ Restarting server...")
-                os.execv(sys.executable, [sys.executable] + sys.argv)
+            if watch:
+                def restart():
+                    print("\n♻️ Restarting server...")
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
 
-            threading.Thread(
-                target=Utils.start_file_watcher,
-                args=(restart,),
-                daemon=True
-            ).start()
+                threading.Thread(
+                    target=Utils.start_file_watcher,
+                    args=(restart,),
+                    daemon=True
+                ).start()
 
             def handle_incoming_request(payload: Dict[str, Any], reply: Callable[[bytes], None]):
                 Utils.handle_request(self, payload, reply)
 
             server_config = {
-                "port": self._secret_options.get("port", 2000),
-                "host": self._secret_options.get("host", "127.0.0.1"),
+                "port": self.port,
+                "host": self.host,
+                "tls": self.tls,
                 "handler": handle_incoming_request,
-                "tls": self._secret_options.get("tls")
             }
 
             Utils.start_server(self, server_config, func)

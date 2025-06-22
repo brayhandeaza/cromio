@@ -10,7 +10,7 @@ class TLSType(TypedDict):
     cert: str
     key: str
     
-class Clients(TypedDict):
+class ClientsType(TypedDict):
     name: Optional[str]
     language: Optional[str]
     ip: Optional[str]
@@ -20,7 +20,7 @@ class OptionsType(TypedDict, total=False):
     tls: Optional[TLSType]
     port: Optional[int]
     backlog: Optional[int]
-    clients: Optional[List[Clients]]
+    clients: Optional[List[ClientsType]]
 
 class CredentialsType(TypedDict):
     secret_key: Optional[str]
