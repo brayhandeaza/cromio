@@ -29,6 +29,8 @@ export type ServerOptions = {
 
 export type TSLOptions = {  
     ca?: Buffer<ArrayBufferLike>,
+    cert?: Buffer<ArrayBufferLike>,
+    key?: Buffer<ArrayBufferLike>
 }
 
 export type ServersType = & ServerOptions

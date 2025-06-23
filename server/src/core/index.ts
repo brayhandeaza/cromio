@@ -289,10 +289,10 @@ export class Server<TInjected extends object = {}> {
                         const buffer = Buffer.concat(chunks);
 
                         const data = zlib.gunzipSync(buffer).toString();
-                        const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data.toString()));
+                        const { trigger, body, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data.toString()));
 
                         if (this._schema) {
-                            const parsed = this._schema.safeParse(payload);
+                            const parsed = this._schema.safeParse(body);
                             if (!parsed.success) {
                                 const messages = parsed.error.errors.map((e: any) => `${e?.path?.join('.')}: ${e?.message}`);
                                 return res.end(zlib.gzipSync(JSON.stringify({ error: { messages } })));
@@ -302,7 +302,7 @@ export class Server<TInjected extends object = {}> {
                         const auth = this.verifyClient(credentials);
                         if (auth.passed) {
                             this.extensions.triggerHook("onRequestBegin", {
-                                request: { trigger, payload, credentials },
+                                request: { trigger, body, credentials },
                                 server: this
                             });
 
@@ -312,20 +312,20 @@ export class Server<TInjected extends object = {}> {
                                 this.extensions.triggerHook("onError", {
                                     server: this,
                                     error: new Error(message),
-                                    request: { trigger, payload, client: auth.client }
+                                    request: { trigger, body, client: auth.client }
                                 });
                                 return res.end(zlib.gzipSync(JSON.stringify({ error: { message } })));
                             }
 
                             await new Promise((resolve, reject) => {
-                                handler(payload, credentials, async (data: any, code: number = 200) => {
+                                handler(body, credentials, async (data: any, code: number = 200) => {
                                     try {
                                         const time = performance.now() - start;
                                         const safeData = data === undefined ? { data: null } : { data };
 
                                         this.extensions.triggerHook("onRequestEnd", {
                                             server: this,
-                                            request: { trigger, payload, client: credentials },
+                                            request: { trigger, body, client: credentials },
                                             response: {
                                                 status: code,
                                                 ...safeData,
@@ -348,7 +348,7 @@ export class Server<TInjected extends object = {}> {
 
                                     } catch (err) {
                                         this.extensions.triggerHook("onError", {
-                                            request: { trigger, payload, credentials },
+                                            request: { trigger, body, credentials },
                                             server: this,
                                             error: err,
                                         });
@@ -405,7 +405,7 @@ export class Server<TInjected extends object = {}> {
 
                         const { message } = await bodySchema.parseAsync(JSON.parse(body));
                         const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
-                        const { trigger, payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
+                        const { trigger, body: payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
 
                         const auth = this.verifyClient(credentials);
                         if (auth.passed) {
@@ -469,7 +469,7 @@ export class Server<TInjected extends object = {}> {
                             this.extensions.triggerHook("onError", {
                                 server: this,
                                 error: new Error(auth.message),
-                                request: { trigger: null, payload: null, client: null }
+                                request: { trigger: null, body: null, client: null }
                             });
                             return res.end(zlib.gzipSync(JSON.stringify({ error: { message: auth.message } })));
                         }
@@ -616,7 +616,7 @@ export class Server<TInjected extends object = {}> {
             case !client:
                 return {
                     passed: false,
-                    message: `🚫 Authentication Failed: Client at ip=${credentials.ip} provided an invalid secretKey`,
+                    message: `🚫 Authentication Failed: Client with ip=${credentials.ip} not found in the list of authorized clients`,
                 };
             case client?.language !== credentials.language && client?.language !== "*":
                 return {

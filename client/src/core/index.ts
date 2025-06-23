@@ -206,6 +206,9 @@ export class Client<TInjected extends object = {}> {
                 agent: {
                     https: new https.Agent({
                         ca: server.tls?.ca ? [server.tls?.ca] : [],
+                        key: server.tls?.key ? server.tls?.key : undefined,
+                        cert: server.tls?.cert ? server.tls?.cert : undefined,
+                        requestCert: (!!server.tls?.cert && !!server.tls.key),
                         rejectUnauthorized: true
                     })
                 }
@@ -218,7 +221,7 @@ export class Client<TInjected extends object = {}> {
                 responseType: 'buffer',
                 ...secureHttps
             })
-            
+
             const response = body.toString('utf8');
             const end = performance.now();
             const bytes = body.length;
