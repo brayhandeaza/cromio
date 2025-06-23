@@ -107,11 +107,11 @@ class ServerUtils:
     def validate_credentials(credentials: CredentialsType, server: Any) -> dict:
         if bool(server.clients) is False:
             return {
-            "client": None,
-            "passed": True,
-            "message": None,
-        }
-            
+                "client": None,
+                "passed": True,
+                "message": None,
+            }
+
         ip = credentials.get("ip", "*")
         language = credentials.get("language", "*")
 
@@ -292,7 +292,7 @@ class ServerUtils:
                 "server": server,
                 "error": message
             })
-            return reply(gzip.compress(json.dumps(auth).encode("utf-8")))
+            return reply(gzip.compress(json.dumps({"error": message}).encode("utf-8")))
 
     @staticmethod
     def start_server(server: Any, options: OptionsType, callback: Callable[[str], None]):

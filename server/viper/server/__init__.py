@@ -4,7 +4,7 @@ import threading
 import pydantic
 from typing import Any, Callable, Dict, List, Optional, Set, TypeVar, Generic, TypedDict
 from viper.extensions.utils import Extensions
-from viper.typing import ClientsType, OptionsType, TLSType
+from viper.typing import ClientsType, TLSType
 from viper.utils import Utils
 
 T = TypeVar("T", bound=Dict[str, Any])
