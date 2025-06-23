@@ -104,6 +104,14 @@ class ServerUtils:
         observer.start()
 
     @staticmethod
+    def validate_tls(conn: Any, addr: Any, context: ssl.SSLContext):
+        try:
+            conn = context.wrap_socket(conn, server_side=True)
+        except ssl.SSLError as ssl_error:
+            print(
+                f"❌ TLS handshake failed from {addr}: {ssl_error}")
+
+    @staticmethod
     def handle_request(server, body: Dict[str, Any], reply: Callable[[bytes], None]):
         start = time.perf_counter()
         trigger_name = body.get("trigger", "")
@@ -237,37 +245,62 @@ class ServerUtils:
             callback(url)
 
             while True:
-                conn, addr = sock.accept()
+                try:
+                    conn, addr = sock.accept()
+                except Exception:
+                    continue
+
                 try:
                     if is_tls:
                         try:
                             conn = context.wrap_socket(conn, server_side=True)
-                        except ssl.SSLError as ssl_error:
-                            print(
-                                f"❌ TLS handshake failed from {addr}: {ssl_error}")
+                        except ssl.SSLError:
+                            # TLS handshake failed — cannot send response
                             conn.close()
                             continue
+
                     else:
-                        first_byte = conn.recv(1, socket.MSG_PEEK)
-                        if first_byte == b"\x16":
+                        try:
+                            first_byte = conn.recv(1, socket.MSG_PEEK)
+                            if first_byte == b"\x16":
+                                # TLS connection attempt to non-TLS server
+                                conn.close()
+                                continue
+                        except Exception:
+                            conn.close()
                             continue
 
                     data = conn.recv(65536)
                     if not data:
+                        conn.close()
                         continue
 
                     request_line, json_body, headers = ServerUtils._parse_http_request(
                         data)
                     if request_line[0] != "POST":
+                        conn.close()
                         continue
 
                     ServerUtils.handle_request(server, json_body or {}, lambda res: conn.send(
                         ServerUtils._format_http_response(res))
                     )
+
                 except Exception as e:
-                    print(f"❗ Error handling request from {addr}: {e}")
+                    try:
+                        conn.send(
+                            ServerUtils._format_http_response(
+                                gzip.compress(json.dumps(
+                                    {"error": f"Internal server error: {str(e)}"}
+                                ).encode("utf-8"))
+                            )
+                        )
+                    except Exception:
+                        pass
                 finally:
-                    conn.close()
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
