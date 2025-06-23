@@ -216,7 +216,7 @@ export class Client<TInjected extends object = {}> {
 
 
             const message = zlib.gzipSync(JSON.stringify(data))
-            const { body, statusCode } = await got.post(server.url, {
+            const { body, statusCode } = await this.client({ server, request }).post(server.url, {
                 body: message,
                 responseType: 'buffer',
                 ...secureHttps
