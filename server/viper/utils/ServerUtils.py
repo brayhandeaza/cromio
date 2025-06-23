@@ -8,7 +8,7 @@ import time
 from typing import Any, Callable, Dict, Optional
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-from viper.typing import OnTriggerType, OptionsType
+from viper.typing import OnTriggerType, OptionsType, CredentialsType
 
 
 class ServerUtils:
@@ -104,12 +104,55 @@ class ServerUtils:
         observer.start()
 
     @staticmethod
-    def validate_tls(conn: Any, addr: Any, context: ssl.SSLContext):
-        try:
-            conn = context.wrap_socket(conn, server_side=True)
-        except ssl.SSLError as ssl_error:
-            print(
-                f"❌ TLS handshake failed from {addr}: {ssl_error}")
+    def validate_credentials(credentials: CredentialsType, server: Any) -> dict:
+        if bool(server.clients) is False:
+            return {
+            "client": None,
+            "passed": True,
+            "message": None,
+        }
+            
+        ip = credentials.get("ip", "*")
+        language = credentials.get("language", "*")
+
+        secret_key = credentials.get(
+            "secretKey" if language == "nodejs" else "secret_key", None
+        )
+
+        client = server.clients.get(secret_key, None)
+        client_ip = client.get("ip", "*")
+        client_language = client.get("language", None)
+        client_secret_key = client.get("secret_key", None)
+
+        if (not client):
+            return {
+                "passed": False,
+                "message": f"🚫 Authentication Failed: Client with ip={ip} not found in the list of authorized clients",
+            }
+
+        if (client_language != language and client_language != "*"):
+            return {
+                "passed": False,
+                "message": f"🚫 Invalid Language: '{language}' is not allowed for ip={ip} — expected '{client.get("language")}'",
+            }
+
+        if (client_ip != ip and client_ip != "*"):
+            return {
+                "passed": False,
+                "message": f"🚫 Authentication Failed: Client with ip={ip} not authorized to access the server",
+            }
+
+        if (client_secret_key != secret_key):
+            return {
+                "passed": False,
+                "message": f"🚫 Authentication Failed: Client at ip={ip} provided an invalid {'secretKey' if language == 'nodejs' else 'secret_key'}",
+            }
+
+        return {
+            "client": client,
+            "passed": True,
+            "message": None,
+        }
 
     @staticmethod
     def handle_request(server, body: Dict[str, Any], reply: Callable[[bytes], None]):
@@ -118,34 +161,17 @@ class ServerUtils:
         payload = body.get("payload", {})
         credentials = body.get("credentials", {})
 
-        has_error = ServerUtils._validate_schema(
-            server,
-            trigger_name,
-            payload={
-                **credentials,
-                **payload
-            }
-        )
-        if has_error:
-            server.extensions.trigger_hook("on_error", {
-                "request": {
-                    "trigger": trigger_name,
-                    "body": payload,
-                    "client": {
-                        "ip": credentials.get("ip"),
-                        "language": credentials.get("language")
-                    }
-                },
-                "server": server,
-                "error": has_error
-            })
-            return reply(gzip.compress(json.dumps(has_error).encode("utf-8")))
-
-        if "message" in payload and isinstance(payload["message"], str):
-            try:
-                decoded = base64.b64decode(payload["message"])
-                payload = json.loads(gzip.decompress(decoded).decode("utf-8"))
-            except Exception as e:
+        auth = ServerUtils.validate_credentials(credentials, server)
+        if auth.get("passed", False):
+            has_error = ServerUtils._validate_schema(
+                server,
+                trigger_name,
+                payload={
+                    **credentials,
+                    **payload
+                }
+            )
+            if has_error:
                 server.extensions.trigger_hook("on_error", {
                     "request": {
                         "trigger": trigger_name,
@@ -156,12 +182,50 @@ class ServerUtils:
                         }
                     },
                     "server": server,
-                    "error": f"Error decompressing payload message: {e}"
+                    "error": has_error
                 })
-                print(f"❗ Error decompressing payload message: {e}")
+                return reply(gzip.compress(json.dumps(has_error).encode("utf-8")))
 
-        if not trigger_name or trigger_name not in server._secret_trigger_handlers:
-            server.extensions.trigger_hook("on_error", {
+            if "message" in payload and isinstance(payload["message"], str):
+                try:
+                    decoded = base64.b64decode(payload["message"])
+                    payload = json.loads(
+                        gzip.decompress(decoded).decode("utf-8"))
+                except Exception as e:
+                    server.extensions.trigger_hook("on_error", {
+                        "request": {
+                            "trigger": trigger_name,
+                            "body": payload,
+                            "client": {
+                                "ip": credentials.get("ip"),
+                                "language": credentials.get("language")
+                            }
+                        },
+                        "server": server,
+                        "error": f"Error decompressing payload message: {e}"
+                    })
+                    print(f"❗ Error decompressing payload message: {e}")
+
+            if not trigger_name or trigger_name not in server._secret_trigger_handlers:
+                server.extensions.trigger_hook("on_error", {
+                    "request": {
+                        "trigger": trigger_name,
+                        "body": payload,
+                        "client": {
+                            "ip": credentials.get("ip"),
+                            "language": credentials.get("language")
+                        }
+                    },
+                    "server": server,
+                    "error": f"Unknown or missing trigger: {trigger_name}"
+                })
+                return reply(gzip.compress(json.dumps({"error": f"Unknown or missing trigger: {trigger_name}"}).encode("utf-8")))
+
+            context = OnTriggerType(
+                trigger=trigger_name, body=payload, credentials=credentials, server=server
+            )
+
+            server.extensions.trigger_hook("on_request_begin", {
                 "request": {
                     "trigger": trigger_name,
                     "body": payload,
@@ -170,70 +234,65 @@ class ServerUtils:
                         "language": credentials.get("language")
                     }
                 },
-                "server": server,
-                "error": f"Unknown or missing trigger: {trigger_name}"
+                "server": server
             })
-            return reply(gzip.compress(json.dumps({"error": f"Unknown or missing trigger: {trigger_name}"}).encode("utf-8")))
 
-        context = OnTriggerType(
-            trigger=trigger_name, body=payload, credentials=credentials, server=server
-        )
+            try:
+                for middleware in server.global_middlewares:
+                    middleware(context)
 
-        server.extensions.trigger_hook("on_request_begin", {
-            "request": {
-                "trigger": trigger_name,
-                "body": payload,
-                "client": {
-                    "ip": credentials.get("ip"),
-                    "language": credentials.get("language")
-                }
-            },
-            "server": server
-        })
+                result = server._secret_trigger_handlers[trigger_name](context)
+                compressed = gzip.compress(json.dumps(
+                    {"data": result}).encode("utf-8"))
 
-        try:
-            for middleware in server.global_middlewares:
-                middleware(context)
-
-            result = server._secret_trigger_handlers[trigger_name](context)
-            compressed = gzip.compress(json.dumps(
-                {"data": result}).encode("utf-8"))
-
-            server.extensions.trigger_hook("on_request_end", {
-                "request": {
-                    "trigger": trigger_name,
-                    "client": {
-                        "ip": credentials.get("ip"),
-                        "language": credentials.get("language")
+                server.extensions.trigger_hook("on_request_end", {
+                    "request": {
+                        "trigger": trigger_name,
+                        "client": {
+                            "ip": credentials.get("ip"),
+                            "language": credentials.get("language")
+                        },
+                        "body": payload,
                     },
-                    "body": payload,
-                },
-                "server": server,
-                "response": {
-                    "status": 200,
-                    "data": result,
-                    "performance": {
-                        "size": len(compressed),
-                        "time": time.perf_counter() - start
+                    "server": server,
+                    "response": {
+                        "status": 200,
+                        "data": result,
+                        "performance": {
+                            "size": len(compressed),
+                            "time": time.perf_counter() - start
+                        }
                     }
-                }
-            })
+                })
 
-            return reply(compressed)
-        except Exception as e:
+                return reply(compressed)
+            except Exception as e:
+                server.extensions.trigger_hook("on_error", {
+                    "request": {
+                        "trigger": trigger_name,
+                        "body": payload,
+                        "client": {
+                            "ip": credentials.get("ip"),
+                            "language": credentials.get("language")
+                        },
+                    },
+                    "server": server,
+                    "error": str(e)
+                })
+                return reply(gzip.compress(json.dumps({"error": str(e)}).encode("utf-8")))
+
+        else:
+            message = auth.get("message")
             server.extensions.trigger_hook("on_error", {
                 "request": {
                     "trigger": trigger_name,
                     "body": payload,
-                    "client": {
-                        "ip": credentials.get("ip"),
-                        "language": credentials.get("language")
-                    },
+                    "client": {}
                 },
                 "server": server,
-                "error": str(e)
+                "error": message
             })
-            return reply(gzip.compress(json.dumps({"error": str(e)}).encode("utf-8")))
+            return reply(gzip.compress(json.dumps(auth).encode("utf-8")))
 
     @staticmethod
     def start_server(server: Any, options: OptionsType, callback: Callable[[str], None]):

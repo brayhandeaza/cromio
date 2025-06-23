@@ -9,6 +9,7 @@ from viper.utils import Utils
 
 T = TypeVar("T", bound=Dict[str, Any])
 
+
 class OptionsType(TypedDict, total=False):
     tls: Optional[TLSType]
     port: Optional[int]
@@ -22,15 +23,27 @@ class Server(Generic[T]):
         self.port = port or 2000
         self.host = host or "localhost"
         self.backlog = backlog or 128
-        self.clients = clients
-        
+        self.clients:  Dict[str, dict] = {}
+
+        if isinstance(clients, list):
+            for client in clients:
+
+                if "secret_key" not in client:
+                    raise ValueError("'name' is required for each client")
+
+                elif client.get("secret_key") in self.clients:
+                    raise ValueError(
+                        f"Client cannot have the same secret_key: {client.get('secret_key')[:10]}...")
+
+                self.clients[client.get('secret_key')] = client
+
         self._secret_trigger_handlers: dict[str, Callable] = {}
         self.triggers: Set[str] = set()
         self.global_middlewares: list[Callable] = []
         self.extensions = Extensions()
         self._schema = None
         self.schemas: dict[str, pydantic.BaseModel] = {}
-        
+
     def on_trigger(self, trigger_name: str, handler: Optional[Callable[[Dict[str, Any]], Any]] = None, schema: pydantic.BaseModel = None):
         if schema:
             self.schemas[trigger_name] = schema
