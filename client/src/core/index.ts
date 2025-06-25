@@ -176,12 +176,11 @@ export class Client<TInjected extends object = {}> {
         const { server, index } = this.getNextClient();
         try {
             const start = performance.now();
-
             const data = {
                 uuid: shortUUID.generate(),
                 trigger,
                 type: ALLOW_MESSAGE.RPC,
-                payload,
+                body: payload,
                 credentials: server.secretKey
                     ? {
                         secretKey: server.secretKey,
@@ -194,9 +193,7 @@ export class Client<TInjected extends object = {}> {
                     },
             };
 
-
-
-            const request = { server, trigger, payload }
+            const request = { server, trigger, body: payload }
             this.extensions.triggerHook('onRequestBegin', {
                 client: this,
                 request

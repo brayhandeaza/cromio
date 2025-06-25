@@ -20,7 +20,7 @@ export type ClientContructorType = {
 }
 
 export type ClientType = CredentialsType & {
-    name: string;
+    name?: string;
 }
 
 export type ServerOptions = {

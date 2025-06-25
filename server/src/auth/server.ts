@@ -8,9 +8,7 @@ export const ClientMessageDataType = z.object({
     body: z.any(),
     credentials: z.object({
         ip: z.string(),
-        name: z.string(),
-        language: z.enum(['nodejs', 'python']),
-        roles: z.array(z.string()).optional(),
+        language: z.enum(['nodejs', 'python', "*"]),
         secretKey: z.string(),
     })
 })

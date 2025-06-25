@@ -11,7 +11,6 @@ export type TriggerHandlerType<TInjected extends object = {}> = {
         extensions: Extensions<TInjected>
         globalMiddlewares: TriggerCallback[]
         port: number
-        logs: boolean
         clients: Map<string, ClientType>
     };
 }

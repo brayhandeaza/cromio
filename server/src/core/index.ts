@@ -1,6 +1,6 @@
 import { Buffer } from 'buffer';
 import { ip } from 'address';
-import { ClientType, TriggerCallback, ServerOptionsType, OnTriggerType, TriggerHandler, MiddlewareCallback, LogsType, ServerExtension, TSLOptions } from '../types';
+import { ClientType, TriggerCallback, ServerOptionsType, OnTriggerType, TriggerHandler, MiddlewareCallback, ServerExtension, TSLOptions } from '../types';
 import { Extensions } from './extensions';
 import { ClientMessageDataType } from '../auth/server';
 import { z } from 'zod';
@@ -43,28 +43,16 @@ import getPort from 'get-port';
 export class Server<TInjected extends object = {}> {
     private extensions: Extensions<TInjected>;
     private port: number | undefined;
-    private logs: boolean;
     private triggerHandlers = new Map<string, TriggerHandler>();
     public triggers: Set<string> = new Set();
     private globalMiddlewares: TriggerCallback[] = [];
     public clients = new Map<string, ClientType>();
     private tls: TSLOptions | undefined
-    private _schema?: z.infer<z.ZodObject<Record<string, z.ZodTypeAny>>>
-
-
-    private Logs = {
-        trigger: ({ trigger, language, ip }: LogsType) => {
-            console.log(`✅ Logs(RPC): trigger="${trigger}" language="${language}" ip="${ip}" message="Request received and processed successfully."`);
-        },
-        error: ({ trigger, language, ip, message }: LogsType) => {
-            console.log(`❌ Logs(Error): trigger="${trigger}" language="${language}" ip="${ip}" message="${message}"`);
-        }
-    }
+    private schemas: Map<string, z.infer<z.ZodObject<Record<string, z.ZodTypeAny>>>> = new Map();
 
     constructor(options?: ServerOptionsType) {
-        const { port, clients = [], logs = true, tls } = options || {};
+        const { port, clients = [], tls } = options || {};
         this.port = port;
-        this.logs = logs;
         this.tls = tls
 
         clients.forEach(client => this.clients.set(client.secretKey, Object.assign(client, {
@@ -198,16 +186,24 @@ export class Server<TInjected extends object = {}> {
         // Register the triggers on the server.
         server.registerTriggerDefinition(triggers);
     */
-    public registerTriggerDefinition({ triggers }: TriggerDefinition) {
+    public registerTriggerDefinition({ triggers, schemas }: TriggerDefinition) {
+        schemas?.forEach((schema, name) => {
+            this.schemas.set(name, schema);
+        })
+
         triggers.forEach((callback, name) => {
             this.triggers.add(name);
             this.onTrigger(name, callback);
         })
     }
 
-    public schema(schema: z.infer<z.ZodObject<Record<string, z.ZodTypeAny>>>): this {
-        this._schema = schema;
-        return this;
+    public schema(schema: z.infer<z.ZodObject<Record<string, z.ZodTypeAny>>>): { onTrigger: (name: string, ...callbacks: MiddlewareCallback[]) => void } {
+        return {
+            onTrigger: (name: string, ...callbacks: MiddlewareCallback[]) => {
+                this.schemas?.set(name, schema);
+                this.onTrigger(name, ...callbacks);
+            }
+        };
     }
 
     /**
@@ -248,7 +244,6 @@ export class Server<TInjected extends object = {}> {
                     ...this,
                     extensions: this.extensions,
                     port: this.port,
-                    logs: this.logs,
                     clients: this.clients
                 },
                 trigger: name,
@@ -283,16 +278,17 @@ export class Server<TInjected extends object = {}> {
                 req.on('data', (chunk) => chunks.push(chunk));
 
                 req.on('end', async () => {
+                    res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' });
                     try {
-                        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' });
                         const start = performance.now();
                         const buffer = Buffer.concat(chunks);
 
                         const data = zlib.gunzipSync(buffer).toString();
                         const { trigger, body, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data.toString()));
 
-                        if (this._schema) {
-                            const parsed = this._schema.safeParse(body);
+                        const schema = this.schemas.get(trigger)
+                        if (schema) {
+                            const parsed = schema.safeParse(body);
                             if (!parsed.success) {
                                 const messages = parsed.error.errors.map((e: any) => `${e?.path?.join('.')}: ${e?.message}`);
                                 return res.end(zlib.gzipSync(JSON.stringify({ error: { messages } })));
@@ -367,6 +363,8 @@ export class Server<TInjected extends object = {}> {
                         }
 
                     } catch (error: any) {
+                        console.log({ error });
+
                         res.end(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
                     }
                 });
@@ -395,22 +393,32 @@ export class Server<TInjected extends object = {}> {
             const server = https.createServer(options, (req, res) => {
                 if (req.method !== 'POST') return res.end(zlib.gzipSync(JSON.stringify({ error: { message: 'Only POST requests are allowed.' } })));
 
-                let body = '';
-                req.on('data', (chunk) => { body += chunk });
+                let data = '';
+                const chunks: Buffer[] = [];
+                req.on('data', (chunk) => chunks.push(chunk));
 
                 req.on('end', async () => {
+                    res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' });
                     try {
                         const start = performance.now();
-                        const bodySchema = z.object({ message: z.string() });
+                        const buffer = Buffer.concat(chunks);
 
-                        const { message } = await bodySchema.parseAsync(JSON.parse(body));
-                        const data = zlib.gunzipSync(Buffer.from(message, 'base64')).toString('utf8');
-                        const { trigger, body: payload, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data));
+                        const data = zlib.gunzipSync(buffer).toString();
+                        const { trigger, body, type, credentials } = await ClientMessageDataType.parseAsync(JSON.parse(data.toString()));
+
+                        const schema = this.schemas.get(trigger)
+                        if (schema) {
+                            const parsed = schema.safeParse(body);
+                            if (!parsed.success) {
+                                const messages = parsed.error.errors.map((e: any) => `${e?.path?.join('.')}: ${e?.message}`);
+                                return res.end(zlib.gzipSync(JSON.stringify({ error: { messages } })));
+                            }
+                        }
 
                         const auth = this.verifyClient(credentials);
                         if (auth.passed) {
                             this.extensions.triggerHook("onRequestBegin", {
-                                request: { trigger, payload, credentials },
+                                request: { trigger, body, credentials },
                                 server: this
                             });
 
@@ -420,20 +428,20 @@ export class Server<TInjected extends object = {}> {
                                 this.extensions.triggerHook("onError", {
                                     server: this,
                                     error: new Error(message),
-                                    request: { trigger, payload, client: auth.client }
+                                    request: { trigger, body, client: auth.client }
                                 });
                                 return res.end(zlib.gzipSync(JSON.stringify({ error: { message } })));
                             }
 
                             await new Promise((resolve, reject) => {
-                                handler(payload, credentials, async (data: any, code: number = 200) => {
+                                handler(body, credentials, async (data: any, code: number = 200) => {
                                     try {
                                         const time = performance.now() - start;
                                         const safeData = data === undefined ? { data: null } : { data };
 
                                         this.extensions.triggerHook("onRequestEnd", {
                                             server: this,
-                                            request: { trigger, payload, client: credentials },
+                                            request: { trigger, body, client: credentials },
                                             response: {
                                                 status: code,
                                                 ...safeData,
@@ -456,7 +464,7 @@ export class Server<TInjected extends object = {}> {
 
                                     } catch (err) {
                                         this.extensions.triggerHook("onError", {
-                                            request: { trigger, payload, credentials },
+                                            request: { trigger, body, credentials },
                                             server: this,
                                             error: err,
                                         });
@@ -475,6 +483,8 @@ export class Server<TInjected extends object = {}> {
                         }
 
                     } catch (error: any) {
+                        console.log({ error });
+
                         res.end(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
                     }
                 });
@@ -574,11 +584,6 @@ export class Server<TInjected extends object = {}> {
                 });
 
                 if (responded) {
-                    if (this.logs) this.Logs.trigger({
-                        trigger: context.trigger,
-                        language: context.credentials.language || "*",
-                        ip: context.credentials.ip || "*",
-                    });
 
                     context.reply(responsePayload);
                     return;
@@ -592,12 +597,6 @@ export class Server<TInjected extends object = {}> {
             } catch (err: any) {
                 const error = this.break(err);
 
-                if (this.logs) this.Logs.error({
-                    trigger: context.trigger,
-                    language: context.credentials.language || "*",
-                    ip: context.credentials.ip || "*",
-                    message: error.message
-                });
 
                 context.reply({ error: error.message }, 500);
                 return;

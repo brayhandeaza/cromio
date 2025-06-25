@@ -31,7 +31,3 @@ export type ClientTypes = {
     roles?: string[] | undefined;
     ip: string;
 }
-
-export type TriggerDefinitionType = {
-    [key: string]: TriggerCallback;
-};
