@@ -158,7 +158,7 @@ class ServerUtils:
     def handle_request(server, body: Dict[str, Any], reply: Callable[[bytes], None]):
         start = time.perf_counter()
         trigger_name = body.get("trigger", "")
-        payload = body.get("payload", {})
+        payload = body.get("body", {})
         credentials = body.get("credentials", {})
 
         auth = ServerUtils.validate_credentials(credentials, server)
