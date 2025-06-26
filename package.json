@@ -8,7 +8,8 @@
 		"apps/web"
 	],
 	"scripts": {
-		"pack": "turbo run pack --parallel"
+		"pack": "turbo run pack --parallel",
+		"link": "turbo run link"
 	},
 	"devDependencies": {
 		"turbo": "^1.12.0"

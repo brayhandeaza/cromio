@@ -27,6 +27,7 @@ makefile
 node_modules/
 # Build output
 dist/
+*.turbo
 
 yarn.lock
 

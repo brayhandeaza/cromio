@@ -6,6 +6,13 @@
             "dependsOn": [
                 "^pack"
             ]
+        },
+        "link": {
+            "cache": false,
+            "persistent": true,
+            "dependsOn": [
+                "^link"
+            ]
         }
     }
 }
