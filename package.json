@@ -1,0 +1,16 @@
+{
+	"name": "viper",
+	"private": true,
+	"packageManager": "yarn@1.22.22",
+	"workspaces": [
+		"apps/python/*",
+		"apps/nodejs/*",
+		"apps/web"
+	],
+	"scripts": {
+		"pack": "turbo run pack --parallel"
+	},
+	"devDependencies": {
+		"turbo": "^1.12.0"
+	}
+}

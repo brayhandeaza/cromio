@@ -1,7 +1,0 @@
-make --dry-run --always-make --keep-going --print-directory
-make: Entering directory `/Users/brayhandeaza/Documents/dev/projects/viper'
-cd nodejs/server && tsup 
-cd nodejs/client && tsup
-cd python && cd server && pip3 install -e . --config-settings editable_mode=compat
-make: Leaving directory `/Users/brayhandeaza/Documents/dev/projects/viper'
- 

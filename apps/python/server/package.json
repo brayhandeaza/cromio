@@ -1,0 +1,8 @@
+{
+    "name": "python-server",
+    "version": "1.0.0",
+    "scripts": {
+        "dev": "uvicorn main:app --reload",
+        "pack": "pip3 install -e . --config-settings editable_mode=compat"
+    }
+}

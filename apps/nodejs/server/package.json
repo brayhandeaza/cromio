@@ -1,5 +1,5 @@
 {
-  "name": "@jrpc/server",
+  "name": "node-server",
   "description": "Modular and middleware-capable JSON-RPC server with extension support",
   "version": "1.0.0",
   "main": "./dist/index.js",
@@ -28,7 +28,7 @@
   "scripts": {
     "dev": "nodemon --exec ts-node -r tsconfig-paths/register app.ts",
     "start": "nodemon --exec ts-node -r tsconfig-paths/register index.ts",
-    "build": "tsup"
+    "pack": "tsup"
   },
   "dependencies": {
     "@types/express": "^5.0.2",

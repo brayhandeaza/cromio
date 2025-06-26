@@ -1,0 +1,11 @@
+{
+    "pipeline": {
+        "pack": {
+            "cache": false,
+            "persistent": true,
+            "dependsOn": [
+                "^pack"
+            ]
+        }
+    }
+}
