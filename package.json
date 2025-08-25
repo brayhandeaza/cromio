@@ -9,7 +9,8 @@
 	],
 	"scripts": {
 		"pack": "turbo run pack --parallel",
-		"link": "turbo run link"
+		"link": "turbo run link",
+		"start": "turbo run start --filter=web"
 	},
 	"devDependencies": {
 		"turbo": "^1.12.0"
