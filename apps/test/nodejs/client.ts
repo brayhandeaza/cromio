@@ -4,14 +4,15 @@ import fs from 'fs';
 const client = new Client({
     servers: [
         {
-            url: "http://192.168.1.93:2000",
+            url: "https://192.168.1.93:2000",
             secretKey: "secretKey",
-            // tls: {
-            //     ca: fs.readFileSync('./certs/ca.key'),
-            //     key: fs.readFileSync('./certs/key.pem'), // Load the private key
-            //     cert: fs.readFileSync('./certs/cert.pem') // Load the certificate
-            // }
-        },
+            tls: {
+                key: fs.readFileSync('./certs/client/key.pem'),
+                cert: fs.readFileSync('./certs/client/cert.pem'),
+                ca: fs.readFileSync('./certs/ca.pem'),
+
+            }
+        }
     ],
 });
 

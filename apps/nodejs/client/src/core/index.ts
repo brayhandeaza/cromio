@@ -2,7 +2,7 @@ import shortUUID from 'short-uuid';
 import zlib, { createGunzip } from 'zlib';
 import got, { Got, ExtendOptions } from 'got';
 import { ip } from 'address';
-import { ClientOptionsType, ServersType, TriggerResponseType, ClientExtension, TriggerStreamResponseType, TriggerStreamResolvedResponseType } from '../types';
+import { ClientOptionsType, ServersType, TriggerResponseType, ClientExtension, TriggerStreamResponseType, TriggerStreamResolvedResponseType, ServerOptions } from '../types';
 import { ALLOW_MESSAGE, LOAD_BALANCER, LOCALHOST, PLATFORM, } from '../constants';
 import { performance } from "perf_hooks"
 import { Extensions } from './extensions';
@@ -12,6 +12,7 @@ import { streamObject } from 'stream-json/streamers/StreamObject';
 import { chain, Readable } from 'stream-chain';
 import { EventEmitter } from 'events';
 import https from 'https';
+import { TLSSocket } from 'tls';
 
 export class Client<TInjected extends object = {}> {
     private servers: ServersType[] = [];
@@ -44,8 +45,14 @@ export class Client<TInjected extends object = {}> {
             this.activeRequests.set(index, 0);
         })
 
-        this.client = ({ server, request }: { server: any, request: any }) => {
+        this.client = ({ server, request }: { server: ServerOptions, request: any }) => {
             return got.extend({
+                // https: {
+                //     certificate: server.tls?.cert,
+                //     key: server.tls?.key,
+                //     certificateAuthority: server.tls?.ca,  // Changed from 'ca' to 'certificateAuthority'
+                //     rejectUnauthorized: true
+                // },
                 timeout: {
                     request: this.TIMEOUT
                 },
@@ -199,24 +206,19 @@ export class Client<TInjected extends object = {}> {
                 request
             })
 
-            const secureHttps = server.tls ? {
-                agent: {
-                    https: new https.Agent({
-                        ca: server.tls?.ca ? [server.tls?.ca] : [],
-                        key: server.tls?.key ? server.tls?.key : undefined,
-                        cert: server.tls?.cert ? server.tls?.cert : undefined,
-                        requestCert: (!!server.tls?.cert && !!server.tls.key),
-                        rejectUnauthorized: true
-                    })
-                }
-            } : {}
-
-
             const message = zlib.gzipSync(JSON.stringify(data))
             const { body, statusCode } = await this.client({ server, request }).post(server.url, {
                 body: message,
                 responseType: 'buffer',
-                ...secureHttps
+                agent: {
+                    https: new https.Agent({
+                        ca: server.tls?.ca ? [server.tls?.ca] : [],
+                        key: server.tls?.key,
+                        cert: server.tls?.cert,
+                        rejectUnauthorized: true,
+                        requestCert: true
+                    })
+                }
             })
 
             const response = body.toString('utf8');

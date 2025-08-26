@@ -28,7 +28,7 @@
   "scripts": {
     "dev": "nodemon --exec ts-node -r tsconfig-paths/register app.ts",
     "start": "nodemon --exec ts-node -r tsconfig-paths/register index.ts",
-    "pack": "tsup && npm link"
+    "pack": "rm -rf ./dist && tsup"
   },
   "dependencies": {
     "@types/express": "^5.0.2",

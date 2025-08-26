@@ -384,7 +384,9 @@ export class Server<TInjected extends object = {}> {
             const options = {
                 key: this.tls?.key,
                 cert: this.tls?.cert,
-                rejectUnauthorized: true
+                ca: this.tls?.ca ? [this.tls?.ca] : undefined,
+                requestCert: this.tls?.requestCert,
+                rejectUnauthorized: this.tls?.rejectUnauthorized
             };
             const server = https.createServer(options, (req, res) => {
                 if (req.method !== 'POST') return res.end(zlib.gzipSync(JSON.stringify({ error: { message: 'Only POST requests are allowed.' } })));
@@ -605,6 +607,9 @@ export class Server<TInjected extends object = {}> {
     private verifyClient(credentials: ClientType): { passed: boolean, message: string, client?: ClientType } {
         if (this.clients.length < 1)
             return { passed: true, message: '', client: credentials };
+
+        console.log({ credentials });
+
 
         const client = this.clients.find((client) =>
             (client.secretKey === credentials.secretKey || client.secretKey === "*") &&
