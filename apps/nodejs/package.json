@@ -1,7 +1,7 @@
 {
-  "name": "tls-rpc-test",
+  "name": "cromio",
   "description": "Modular and middleware-capable JSON-RPC server with extension support",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -16,7 +16,7 @@
     "server",
     "middleware",
     "plugin",
-    "extensible",
+    "extensions",
     "protocol",
     "json",
     "typescript",
@@ -28,7 +28,8 @@
   "scripts": {
     "dev": "nodemon --exec ts-node -r tsconfig-paths/register app.ts",
     "start": "nodemon --exec ts-node -r tsconfig-paths/register index.ts",
-    "pack": "rm -rf ./dist && tsup"
+    "pack": "rm -rf ./dist && tsup",
+    "publish": "npm publish"
   },
   "dependencies": {
     "@types/express": "^5.0.2",
