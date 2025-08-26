@@ -3,10 +3,8 @@ import fs from 'fs';
 import http from 'http';
 
 
-
-
 const client: Client = new Client({
-    loadBalancerStrategy: LOAD_BALANCER.LEAST_LATENCY,
+    loadBalancerStrategy: LOAD_BALANCER.BEST_BIASED,
     servers: [
         {
             url: "https://192.168.1.93:2000",

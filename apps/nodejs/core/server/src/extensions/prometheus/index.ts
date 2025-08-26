@@ -6,11 +6,9 @@ import { ip } from "address"
 import http from 'http';
 import getPort from 'get-port';
 
-// xTLS
-
 export function prometheusMetrics(options: PrometheusMetricsOptions, register: Registry): ServerExtension {
     let { showLogs = true, port, name = 'jrpc' } = options;
-    name = `server_${name || 'mtls-rpc'}`;
+    name = `server_${name || ''}`;
 
     const createHttpServer = async (): Promise<http.Server> => {
         const server = http.createServer();

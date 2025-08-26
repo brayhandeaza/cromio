@@ -1,12 +1,12 @@
-import {register, collectDefaultMetrics } from "prom-client";
+import { register, collectDefaultMetrics } from "prom-client";
 
 
-import * as serverPrometheusMetrics from "../server/src/extensions/prometheus";
-import * as serverRequestRateLimiter from "../server/src/extensions/rateLimit"
+import * as serverPrometheusMetrics from "../core/server/src/extensions/prometheus";
+import * as serverRequestRateLimiter from "../core/server/src/extensions/rateLimit"
 
-import * as clientJaegerTracing from "../client/src/extensions/jaeger";
-import * as clientLoggerExtension from "../client/src/extensions/logger";
-import * as clientPrometheusMetrics from "../client/src/extensions/prometheus";
+import * as clientJaegerTracing from "../core/client/src/extensions/jaeger";
+import * as clientLoggerExtension from "../core/client/src/extensions/logger";
+import * as clientPrometheusMetrics from "../core/client/src/extensions/prometheus";
 
 
 collectDefaultMetrics({ register });
