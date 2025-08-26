@@ -8,15 +8,14 @@ const client: Client = new Client({
     servers: [
         {
             url: "https://192.168.1.93:2000",
-            secretKey: "secretKey",
+            secretKey: "1234",
             tls: {
                 key: fs.readFileSync('./certs/client/key.pem'),
                 cert: fs.readFileSync('./certs/client/cert.pem'),
-                ca: fs.readFileSync('./certs/ca.pem'),
-
+                ca: fs.readFileSync('./certs/ca.pem')
             }
         }
-    ],
+    ]
 });
 
 

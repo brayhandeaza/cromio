@@ -10,7 +10,14 @@ const server = new Server({
         ca: fs.readFileSync('./certs/ca.pem'),
         requestCert: true,
         rejectUnauthorized: true
-    }
+    },
+    clients: [
+        {
+            secretKey: "1234",
+            language: "nodejs",
+            ip: "192.168.1.93",
+        }
+    ]
 });
 
 
