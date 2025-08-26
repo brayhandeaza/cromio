@@ -8,7 +8,7 @@ import http from 'http';
 import getPort from 'get-port';
 
 
-collectDefaultMetrics({ register });
+// collectDefaultMetrics({ register });
 
 export function prometheusMetrics(options: PrometheusMetricsOptions): ServerExtension {
     const { showLogs = true, port, name = 'jrpc_server' } = options;

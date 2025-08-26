@@ -6,7 +6,7 @@ export { type PrometheusMetricsOptions } from "./utils"
 import { Gauge, Histogram, register } from "prom-client";
 
 
-collectDefaultMetrics({ register });
+// collectDefaultMetrics({ register });
 
 export function prometheusMetrics(options: PrometheusMetricsOptions): ClientExtension<{ timer: (_: { trigger: string; server: string; status: number }) => void }> {
     const { showLogs = true, port = 7001, name = 'jrpc_client' } = options;

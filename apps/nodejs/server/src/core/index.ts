@@ -46,7 +46,7 @@ export class Server<TInjected extends object = {}> {
     private triggerHandlers = new Map<string, TriggerHandler>();
     public triggers: Set<string> = new Set();
     private globalMiddlewares: TriggerCallback[] = [];
-    public clients = new Map<string, ClientType>();
+    public clients: ClientType[] = [];
     private tls: TSLOptions | undefined
     private schemas: Map<string, z.infer<z.ZodObject<Record<string, z.ZodTypeAny>>>> = new Map();
 
@@ -55,11 +55,7 @@ export class Server<TInjected extends object = {}> {
         this.port = port;
         this.tls = tls
 
-        clients.forEach(client => this.clients.set(client.secretKey, Object.assign(client, {
-            ip: client.ip || "*",
-            language: client.language || "*"
-        })));
-
+        this.clients = clients
         this.extensions = new Extensions();
     }
 
@@ -607,10 +603,15 @@ export class Server<TInjected extends object = {}> {
     }
 
     private verifyClient(credentials: ClientType): { passed: boolean, message: string, client?: ClientType } {
-        if (this.clients.size < 1)
-            return { passed: true, message: ``, client: credentials };
+        if (this.clients.length < 1)
+            return { passed: true, message: '', client: credentials };
 
-        const client = this.clients.get(credentials.secretKey);
+        const client = this.clients.find((client) =>
+            (client.secretKey === credentials.secretKey || client.secretKey === "*") &&
+            (client.ip === credentials.ip || client.ip === "*") &&
+            (client.language === credentials.language || client.language === "*")
+        );
+
         switch (true) {
             case !client:
                 return {
@@ -627,7 +628,7 @@ export class Server<TInjected extends object = {}> {
                     passed: false,
                     message: `🚫 Invalid IP Address: Expected '${client.ip}', but received '${credentials.ip}'`,
                 };
-            case client?.secretKey !== credentials.secretKey:
+            case client?.secretKey !== credentials.secretKey && client?.secretKey !== "*":
                 return {
                     passed: false,
                     message: `🚫 Authentication Failed: Client at ip=${credentials.ip} provided an invalid secretKey`,
