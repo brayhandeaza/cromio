@@ -1,14 +1,10 @@
 import Fastify from 'fastify';
 import { ClientExtension, OnErrorType, OnRequestBeginType, OnRequestEndType, OnRequestRetryType } from "../../types"
-import { collectDefaultMetrics } from 'prom-client';
+import { Gauge, Histogram,  Registry } from "prom-client";
 import { PrometheusMetricsOptions, shouldTrackTrigger } from "./utils";
 export { type PrometheusMetricsOptions } from "./utils"
-import { Gauge, Histogram, register } from "prom-client";
 
-
-// collectDefaultMetrics({ register });
-
-export function prometheusMetrics(options: PrometheusMetricsOptions): ClientExtension<{ timer: (_: { trigger: string; server: string; status: number }) => void }> {
+export function prometheusMetrics(options: PrometheusMetricsOptions, register: Registry): ClientExtension<{ timer: (_: { trigger: string; server: string; status: number }) => void }> {
     const { showLogs = true, port = 7001, name = 'jrpc_client' } = options;
     const server = Fastify();
 

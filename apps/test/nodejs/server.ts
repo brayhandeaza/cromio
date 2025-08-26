@@ -1,4 +1,4 @@
-import { Server, ServerExtensions } from "tls-rpc-test";
+import { Server, Extensions } from "tls-rpc-test";
 import fs from 'fs';
 
 
@@ -21,7 +21,7 @@ server.onTrigger("div", async ({ body }: any) => {
 
 
 
-server.addExtension(ServerExtensions.prometheusMetrics({ port: 2001 }));
+server.addExtension(Extensions.serverPrometheusMetrics({ port: 2001 }));
 
 
 server.start((url: string) => {

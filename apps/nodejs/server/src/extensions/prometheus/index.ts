@@ -1,17 +1,16 @@
 import { OnErrorType, OnRequestBeginType, OnRequestEndType, ServerExtension } from "../../types"
-import { collectDefaultMetrics } from 'prom-client';
 import { PrometheusMetricsOptions, safeStringify, shouldTrackTrigger } from "./utils";
 export { type PrometheusMetricsOptions } from "./utils"
-import { Gauge, Histogram, register } from "prom-client";
+import { Gauge, Histogram,  Registry } from "prom-client";
 import { ip } from "address"
 import http from 'http';
 import getPort from 'get-port';
 
+// xTLS
 
-// collectDefaultMetrics({ register });
-
-export function prometheusMetrics(options: PrometheusMetricsOptions): ServerExtension {
-    const { showLogs = true, port, name = 'jrpc_server' } = options;
+export function prometheusMetrics(options: PrometheusMetricsOptions, register: Registry): ServerExtension {
+    let { showLogs = true, port, name = 'jrpc' } = options;
+    name = `server_${name || 'mtls-rpc'}`;
 
     const createHttpServer = async (): Promise<http.Server> => {
         const server = http.createServer();

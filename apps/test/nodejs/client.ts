@@ -1,7 +1,12 @@
-import { Client } from "tls-rpc-test";
+import { Client, LOAD_BALANCER } from "tls-rpc-test";
 import fs from 'fs';
+import http from 'http';
 
-const client = new Client({
+
+
+
+const client: Client = new Client({
+    loadBalancerStrategy: LOAD_BALANCER.LEAST_LATENCY,
     servers: [
         {
             url: "https://192.168.1.93:2000",
@@ -16,11 +21,18 @@ const client = new Client({
     ],
 });
 
-setTimeout(() => {
-    client.trigger("div", { num1: 10, num2: 11 }).then((response) => {
-        console.log(response);
-    });
 
-}, 3000);
+const server = http.createServer(async (req, res) => {
+    const response = await client.trigger("div", { num1: 10, num2: 11 })
+
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end(JSON.stringify(response));
+});
+
+server.listen(2002, () => {
+    console.log('Server listening on port 2002');
+});
+
+
 
 
