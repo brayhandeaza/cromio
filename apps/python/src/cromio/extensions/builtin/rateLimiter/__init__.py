@@ -1,6 +1,6 @@
 import json
-from viper.extensions.utils import BaseExtension
-from viper.typing import OnRequestEndType
+from cromio.extensions.utils import BaseExtension
+from cromio.typing import OnRequestEndType
 from typing import Dict
 import threading
 import time

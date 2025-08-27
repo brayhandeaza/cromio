@@ -1,6 +1,6 @@
-from viper.extensions.utils import BaseExtension
-from viper.typing import OnRequestBeginType, OnRequestEndType, OnRequestErrorType
-import viper.extensions.builtin.prometheus.utils as Utils
+from cromio.extensions.utils import BaseExtension
+from cromio.typing import OnRequestBeginType, OnRequestEndType, OnRequestErrorType
+import cromio.extensions.builtin.prometheus.utils as Utils
 
 
 class PrometheusExtension(BaseExtension):

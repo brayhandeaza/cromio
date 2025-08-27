@@ -3,9 +3,9 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "viper"
-version = "0.1.0"
-description = "Viper local dev package"
+name = "cromio"
+version = "0.0.0"
+description = "Cromio Server"
 dependencies = [
     "pydantic==2.10.6",
     "watchdog==4.0.1",
@@ -13,4 +13,5 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = { find = {} }
+packages = ["cromio"]
+package-dir = { "" = "src" }

@@ -1,0 +1,12 @@
+name: python
+version: 0.0.1
+entry: main.py
+license: MIT
+
+scripts:
+  start: python main.py
+
+dependencies:
+  pydantic: 2.10.6
+  watchdog: 4.0.1
+  prometheus_client: 0.14.1

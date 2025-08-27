@@ -3,21 +3,21 @@ import fs from 'fs';
 
 
 const server = new Server({
-    port: 2000,
-    tls: {
-        key: fs.readFileSync('./certs/server/key.pem'),
-        cert: fs.readFileSync('./certs/server/cert.pem'),
-        ca: fs.readFileSync('./certs/ca.pem'),
-        requestCert: true,
-        rejectUnauthorized: true
-    },
-    clients: [
-        {
-            secretKey: "1234",
-            language: "nodejs",
-            ip: "192.168.1.93",
-        }
-    ]
+    port: 2006,
+    // tls: {
+    //     key: fs.readFileSync('./certs/server/key.pem'),
+    //     cert: fs.readFileSync('./certs/server/cert.pem'),
+    //     ca: fs.readFileSync('./certs/ca.pem'),
+    //     requestCert: true,
+    //     rejectUnauthorized: true
+    // },
+    // clients: [
+    //     {
+    //         secretKey: "1234",
+    //         language: "python",
+    //         ip: "192.168.1.93",
+    //     },
+    // ]
 });
 
 

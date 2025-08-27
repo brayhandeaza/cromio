@@ -7,7 +7,10 @@ const client: Client = new Client({
     loadBalancerStrategy: LOAD_BALANCER.BEST_BIASED,
     servers: [
         {
-            url: "https://192.168.1.93:2000",
+            url: "http://localhost:2000",            
+        },
+        {
+            url: "http://192.168.1.93:2006",
             secretKey: "1234",
             tls: {
                 key: fs.readFileSync('./certs/client/key.pem'),

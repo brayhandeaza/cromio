@@ -3,9 +3,9 @@ import sys
 import threading
 import pydantic
 from typing import Any, Callable, Dict, List, Optional, Set, TypeVar, Generic, TypedDict
-from viper.extensions.utils import Extensions
-from viper.typing import ClientsType, TLSType
-from viper.utils import Utils
+from cromio.extensions.utils import Extensions
+from cromio.typing import ClientsType, TLSType
+from cromio.utils import Utils
 
 T = TypeVar("T", bound=Dict[str, Any])
 

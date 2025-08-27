@@ -1,9 +1,9 @@
 from typing import Callable, TypedDict
-from viper.extensions.utils import BaseExtension
+from cromio.extensions.utils import BaseExtension
 from prometheus_client import Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
-from viper.typing import OnRequestBeginType, OnRequestEndType, OnRequestErrorType
+from cromio.typing import OnRequestBeginType, OnRequestEndType, OnRequestErrorType
 
 class ExtraCallbacksType(TypedDict):
     on_request_begin: Callable[[OnRequestBeginType], None]

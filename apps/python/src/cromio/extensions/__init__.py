@@ -1,6 +1,6 @@
-from viper.extensions.builtin.prometheus import PrometheusExtension
-from viper.extensions.builtin.prometheus.utils import ExtraCallbacksType
-from viper.extensions.builtin.rateLimiter import RequestRateLimiter
+from cromio.extensions.builtin.prometheus import PrometheusExtension
+from cromio.extensions.builtin.prometheus.utils import ExtraCallbacksType
+from cromio.extensions.builtin.rateLimiter import RequestRateLimiter
 
 
 class Extensions:

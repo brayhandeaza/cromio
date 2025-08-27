@@ -8,7 +8,7 @@ import time
 from typing import Any, Callable, Dict, Optional
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-from viper.typing import OnTriggerType, OptionsType, CredentialsType
+from cromio.typing import OnTriggerType, OptionsType, CredentialsType
 
 
 class ServerUtils:

@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, TYPE_CHECKING, TypedDict, Generic, TypeVar
 
 if TYPE_CHECKING:
-    from viper import Server  # Only for type hints, not actual import
+    from cromio import Server  # Only for type hints, not actual import
 
     # TypeVar for body schema
 T = TypeVar("T", bound=Dict[str, Any])
