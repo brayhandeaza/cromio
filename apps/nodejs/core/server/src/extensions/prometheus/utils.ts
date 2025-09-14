@@ -4,6 +4,7 @@ export { register } from "prom-client";
 export interface PrometheusMetricsOptions {
     name?: string;
     showLogs?: boolean;
+    defaultMetrics?: boolean;
     port?: number;
     includeTriggers?: string[];
     excludeTriggers?: string[];

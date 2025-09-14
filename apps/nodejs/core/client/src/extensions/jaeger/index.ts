@@ -15,7 +15,7 @@ export function jaegerTracing(options?: JaegerTracingOptions): ClientExtension<{
     return {
         name: serviceName,
         injectProperties() {
-            sdk(serviceName, options?.OTLPEndpoint).start();
+            sdk(serviceName, options?.OTLPEndpoint)
 
             if (showLogs)
                 console.log('🚀 [TRACE]: Jeager Tracing initialized');

@@ -3,5 +3,14 @@
   "version": "1.0.0",
   "main": "index.js",
   "license": "MIT",
-  "dependencies": {}
+  "dependencies": {
+    "@types/libsodium-wrappers": "^0.7.14",
+    "axios": "^1.11.0",
+    "compressorjs": "^1.2.1",
+    "cromio": "^0.0.13",
+    "cryptografia": "^0.0.16",
+    "image-size": "^2.0.2",
+    "libsodium-wrappers": "^0.7.15",
+    "socket.io": "^4.8.1"
+  }
 }

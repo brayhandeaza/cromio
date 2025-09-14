@@ -4,6 +4,8 @@ __pycache__
 
 Packages/
 
+*egg-info
+
 # Directories
 build
 dist

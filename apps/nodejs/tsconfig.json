@@ -1,24 +1,19 @@
 {
-	"compilerOptions": {
-		"resolveJsonModule": true,
-		"strict": true,
-		"module": "nodenext",
-		"noImplicitAny": true,
-		"esModuleInterop": true,
-		"strictNullChecks": true,
-		"allowSyntheticDefaultImports": true,
-		"isolatedModules": true,
-		"declaration": true,
-		"noEmit": true,
-		"outDir": "dist",
-		"moduleResolution": "nodenext",
-		"target": "es2022",
-		"lib": [
-			"es2022",
-			"DOM"
-		]
-	},
-	"exclude": [
-		"node_modules"
-	]
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ESNext",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "noEmit": true,
+    "outDir": "dist",
+    "lib": ["es2022", "DOM"]
+  },
+  "exclude": ["node_modules"]
 }

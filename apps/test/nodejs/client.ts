@@ -1,16 +1,14 @@
-import { Client, LOAD_BALANCER } from "tls-rpc-test";
+import { Client, LOAD_BALANCER } from "cromio";
 import fs from 'fs';
 import http from 'http';
+import { collectDefaultMetrics, register } from 'prom-client';
 
 
 const client: Client = new Client({
     loadBalancerStrategy: LOAD_BALANCER.BEST_BIASED,
     servers: [
         {
-            url: "http://localhost:2000",            
-        },
-        {
-            url: "http://192.168.1.93:2006",
+            url: "https://localhosts:2006",
             secretKey: "1234",
             tls: {
                 key: fs.readFileSync('./certs/client/key.pem'),

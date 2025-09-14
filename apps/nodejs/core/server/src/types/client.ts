@@ -3,7 +3,7 @@ import { LOAD_BALANCER } from '../constants';
 import { TSLOptions } from './server';
 
 export type SecretKeyType = {
-    secretKey: string;
+    secretKey?: string;
 }
 
 export type CredentialsType = SecretKeyType & {

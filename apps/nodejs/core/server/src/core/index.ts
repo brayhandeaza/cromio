@@ -41,12 +41,13 @@ import getPort from 'get-port';
  * });
  */
 export class Server<TInjected extends object = {}> {
+    public triggers: Set<string> = new Set();
+    public clients: ClientType[] = [];
     private extensions: Extensions<TInjected>;
     private port: number | undefined;
     private triggerHandlers = new Map<string, TriggerHandler>();
-    public triggers: Set<string> = new Set();
     private globalMiddlewares: TriggerCallback[] = [];
-    public clients: ClientType[] = [];
+    private httpServer: http.Server | null = null;
     private tls: TSLOptions | undefined
     private schemas: Map<string, z.infer<z.ZodObject<Record<string, z.ZodTypeAny>>>> = new Map();
 
@@ -57,6 +58,16 @@ export class Server<TInjected extends object = {}> {
 
         this.clients = clients
         this.extensions = new Extensions();
+    }
+
+
+    /**
+    * Retrieves the HTTP server instance associated with the server.
+    *
+    * @returns {http.Server | null} The HTTP server instance, or `null` if the server is not running.
+    */
+    public getHttpServerInstance(): http.Server{
+        return this.httpServer ?? http.createServer()
     }
 
     /**
@@ -77,6 +88,7 @@ export class Server<TInjected extends object = {}> {
 
             if (protocol === 'http')
                 this.createHttpServer().then(async server => {
+                    this.httpServer = server
                     this.port = this.port || await getPort({ port: 2000 });
                     server.listen(this.port, () => {
                         if (callback) callback(`${protocol}://${ip()}:${this.port}`);
@@ -85,7 +97,6 @@ export class Server<TInjected extends object = {}> {
                         });
                     });
                 }).catch(error => {
-                    console.log(`${error.toString()}\n`)
                     this.extensions.triggerHook("onError", {
                         server: this,
                         error,
@@ -93,6 +104,7 @@ export class Server<TInjected extends object = {}> {
                 })
             else
                 this.createTLSServer().then(async server => {
+                    this.httpServer = server
                     this.port = this.port || await getPort({ port: 2000 });
                     server.listen(this.port, () => {
                         if (callback) callback(`${protocol}://${ip()}:${this.port}`);
@@ -101,7 +113,6 @@ export class Server<TInjected extends object = {}> {
                         });
                     });
                 }).catch(error => {
-                    console.log(`${error.toString()}\n`)
                     this.extensions.triggerHook("onError", {
                         server: this,
                         error,
@@ -300,7 +311,7 @@ export class Server<TInjected extends object = {}> {
 
                             const handler = this.triggerHandlers.get(trigger);
                             if (!handler) {
-                                const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+                                const message = `Trigger '${trigger}' is not registered on the server`;
                                 this.extensions.triggerHook("onError", {
                                     server: this,
                                     error: new Error(message),
@@ -359,8 +370,6 @@ export class Server<TInjected extends object = {}> {
                         }
 
                     } catch (error: any) {
-                        console.log({ error });
-
                         res.end(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
                     }
                 });
@@ -370,7 +379,7 @@ export class Server<TInjected extends object = {}> {
         } catch (error: any) {
             switch (true) {
                 case error.code === 'ERR_OSSL_X509_KEY_VALUES_MISMATCH' || error.code === 'ERR_OSSL_PEM_BAD_BASE64_DECODE' || error.code.includes('ERR_OSSL_PEM'):
-                    const friendlyMessage = `🚫 Failed to start TLS server. The certificate and private key do not match — please check your TLS credentials.`;
+                    const friendlyMessage = `Failed to start TLS server. The certificate and private key do not match — please check your TLS credentials.`;
                     throw new Error(friendlyMessage);
                 default:
                     throw error
@@ -422,7 +431,7 @@ export class Server<TInjected extends object = {}> {
 
                             const handler = this.triggerHandlers.get(trigger);
                             if (!handler) {
-                                const message = `🚫 Trigger '${trigger}' is not registered on the server`;
+                                const message = `Trigger '${trigger}' is not registered on the server`;
                                 this.extensions.triggerHook("onError", {
                                     server: this,
                                     error: new Error(message),
@@ -481,8 +490,6 @@ export class Server<TInjected extends object = {}> {
                         }
 
                     } catch (error: any) {
-                        console.log({ error });
-
                         res.end(zlib.gzipSync(JSON.stringify({ error: { message: error.message || 'Unknown error' } })));
                     }
                 });
@@ -493,7 +500,7 @@ export class Server<TInjected extends object = {}> {
         } catch (error: any) {
             switch (true) {
                 case error.code === 'ERR_OSSL_X509_KEY_VALUES_MISMATCH' || error.code === 'ERR_OSSL_PEM_BAD_BASE64_DECODE' || error.code.includes('ERR_OSSL_PEM'):
-                    const friendlyMessage = `🚫 Failed to start TLS server. The certificate and private key do not match — please check your TLS credentials.`;
+                    const friendlyMessage = `Failed to start TLS server. The certificate and private key do not match — please check your TLS credentials.`;
                     throw new Error(friendlyMessage);
                 default:
                     throw error
@@ -608,9 +615,6 @@ export class Server<TInjected extends object = {}> {
         if (this.clients.length < 1)
             return { passed: true, message: '', client: credentials };
 
-        console.log({ credentials });
-
-
         const client = this.clients.find((client) =>
             (client.secretKey === credentials.secretKey || client.secretKey === "*") &&
             (client.ip === credentials.ip || client.ip === "*") &&
@@ -621,22 +625,22 @@ export class Server<TInjected extends object = {}> {
             case !client:
                 return {
                     passed: false,
-                    message: `🚫 Authentication Failed: Client with ip=${credentials.ip} not found in the list of authorized clients`,
+                    message: `Authentication Failed: Client with ip=${credentials.ip} not found in the list of authorized clients`,
                 };
             case client?.language !== credentials.language && client?.language !== "*":
                 return {
                     passed: false,
-                    message: `🚫 Invalid Language: '${credentials.language}' not allowed for ip=${credentials.ip} — expected '${client.language}'`,
+                    message: `Invalid Language: '${credentials.language}' not allowed for ip=${credentials.ip} — expected '${client.language}'`,
                 };
             case client?.ip !== credentials.ip && client?.ip !== "*":
                 return {
                     passed: false,
-                    message: `🚫 Invalid IP Address: Expected '${client.ip}', but received '${credentials.ip}'`,
+                    message: `Invalid IP Address: Expected '${client.ip}', but received '${credentials.ip}'`,
                 };
             case client?.secretKey !== credentials.secretKey && client?.secretKey !== "*":
                 return {
                     passed: false,
-                    message: `🚫 Authentication Failed: Client at ip=${credentials.ip} provided an invalid secretKey`,
+                    message: `Authentication Failed: Client at ip=${credentials.ip} provided an invalid secretKey`,
                 };
             default:
                 return {

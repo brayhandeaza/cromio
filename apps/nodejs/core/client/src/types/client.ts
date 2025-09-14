@@ -2,7 +2,7 @@ import { LOAD_BALANCER } from '../constants';
 import { Client } from '../core';
 
 export interface ClientType {
-    secretKey: string;
+    secretKey?: string;
 }
 
 

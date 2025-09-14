@@ -9,18 +9,22 @@ import * as clientLoggerExtension from "../core/client/src/extensions/logger";
 import * as clientPrometheusMetrics from "../core/client/src/extensions/prometheus";
 
 
-collectDefaultMetrics({ register });
-
 export class Extensions {
     static serverRequestRateLimiter = (option?: serverRequestRateLimiter.RateLimitOptionsType) => {
         return serverRequestRateLimiter.requestRateLimiter(option || {})
     }
 
     static serverPrometheusMetrics = (options?: serverPrometheusMetrics.PrometheusMetricsOptions) => {
+        if (options?.defaultMetrics)
+            collectDefaultMetrics({ register });
+
         return serverPrometheusMetrics.prometheusMetrics(options || {}, register)
     }
 
     static prometheusMetrics(options: clientPrometheusMetrics.PrometheusMetricsOptions = { port: 7000, includeTriggers: [] }) {
+        if (options?.defaultMetrics)
+            collectDefaultMetrics({ register });
+        
         return clientPrometheusMetrics.prometheusMetrics(options, register);
     }
 
